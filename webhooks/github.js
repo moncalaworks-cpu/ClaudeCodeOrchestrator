@@ -5,7 +5,8 @@
                                                                                                                                             
   const crypto = require('crypto');                                                                                                         
   const express = require('express');                                                                                                       
-  const router = express.Router();                                                                                                          
+  const router = express.Router();
+  const slackHandler = require('../handlers/slack');                                                                                                          
                                                                                                                                             
   // Verify GitHub webhook signature                                                                                                        
   function verifyGitHubSignature(req, secret) {                                                                                             
@@ -82,7 +83,17 @@
         delivery_id: delivery_id                                                                                                            
       };                                                                                                                                    
                                                                                                                                             
-      console.log(`[GitHub] Deployment data:`, deployment_data);                                                                            
+      console.log(`[GitHub] Deployment data:`, deployment_data);
+
+      // Send Slack notification
+      const slackResult = await slackHandler.sendDeploymentNotification(deployment_data);
+
+      if (slackResult.success) {
+        console.log(`[GitHub] ✅ Slack notification sent, thread: ${slackResult.thread_ts}`);
+        deployment_data.slack_thread_id = slackResult.thread_ts;
+      } else {
+        console.error(`[GitHub] ❌ Slack notification failed: ${slackResult.error}`);
+      }                                                                            
                                                                                                                                             
       // TODO: In Phase 8, pass this to orchestrator to create Notion record                                                                
       // For now, just log it                                                                                                               
