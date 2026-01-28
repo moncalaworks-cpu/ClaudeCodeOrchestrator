@@ -96,6 +96,158 @@ Deployment complete, status updated
 
 ---
 
+## Phase 3: Implementation Details & Lessons Learned
+
+### What Was Built
+
+**Files Created:**
+- `handlers/slack.js` - Slack notification module (150 lines)
+  - `sendDeploymentNotification()` - Sends deployment messages to Slack
+  - `getChannelForBranch()` - Routes to correct channel based on branch
+  - `postStatusUpdate()` - Stub for Phase 3B thread replies
+
+**Files Modified:**
+- `webhooks/github.js` - Integrated Slack handler for async notifications
+- `server.js` - Fixed Heroku PORT environment variable
+- `package.json` - Added @slack/web-api dependency
+
+**Environment Configuration:**
+- `SLACK_BOT_TOKEN` - Bot user OAuth token (xoxb-...)
+- `SLACK_APP_TOKEN` - Not needed for Phase 3 (only chat:write required)
+- `SLACK_DEV_CHANNEL_ID` - Feature branch notifications
+- `SLACK_QA_CHANNEL_ID` - Develop branch notifications
+- `SLACK_PROD_CHANNEL_ID` - Main branch notifications
+- `SLACK_INCIDENTS_CHANNEL_ID` - Error fallback channel
+
+### Major Issues & Solutions
+
+#### Issue 1: Invalid Slack Token (not_authed error)
+**Problem:** Bot token returned `not_authed` error from Slack API
+**Root Cause:** Using old/revoked token or wrong app
+**Solution:**
+- Created new Slack app "Claude Orchestrator"
+- Generated fresh bot token with `chat:write` scope
+- Installed app to workspace
+
+#### Issue 2: Webhook Timeout (408 error)
+**Problem:** GitHub webhook requests timed out with 408 status
+**Root Cause:** `await slackHandler.sendDeploymentNotification()` blocked the response
+**Solution:**
+- Moved Slack calls to async `.then()` chain
+- Return 200 to GitHub immediately
+- Let Slack notification process in background
+- Prevents webhook timeout on slow Slack API calls
+
+#### Issue 3: Heroku App Boot Timeout (H20/H10 errors)
+**Problem:** App crashed 60 seconds after starting, kept restarting
+**Root Cause:** Server listening on hardcoded port 3001, Heroku assigns dynamic PORT
+**Solution:**
+- Changed `const PORT = process.env.ORCHESTRATOR_PORT || 3001`
+- To: `const PORT = process.env.PORT || 3001`
+- Heroku now properly assigns port and app stays up
+
+#### Issue 4: Bot Not Invited to Channels (not_in_channel error)
+**Problem:** Slack API returned "not_in_channel" for all channels
+**Root Cause:** Bot was not a member of the channels
+**Solution:**
+- Added @claude_orchestrator bot to #prod, #qa, #dev, #incidents
+- Bot must be explicitly invited to each channel before posting
+
+#### Issue 5: Environment Variables Not Loading (Heroku)
+**Problem:** Local `.env` worked but Heroku didn't have variables
+**Solution:**
+- Used `heroku config:set` to configure environment variables
+- Set `SLACK_BOT_TOKEN`, `GITHUB_WEBHOOK_SECRET`, and all channel IDs
+- Never commit `.env` to git; always use config vars on platform
+
+#### Issue 6: Tunneling Complexity (localtunnel/ngrok)
+**Problem:** Local development required tunnel to receive webhooks, tunnels kept failing
+**Solution:**
+- Skip tunneling for serious testing
+- Deploy to Heroku for stable, 24/7 endpoint
+- GitHub webhooks are more reliable hitting production URL
+
+### Key Lessons Learned
+
+#### 1. Always Return Webhook Response First
+- Webhook responses must complete within timeouts (GitHub: ~30s, Heroku: ~60s)
+- Never `await` external API calls (Slack, Notion, etc.) in webhook handler
+- Return 200 immediately, process side effects asynchronously
+- This pattern is critical for reliability
+
+#### 2. Environment Variables Strategy
+**Local Development:**
+- Use `.env` file with `source .env` before running
+- Never commit secrets to git
+
+**Heroku/Production:**
+- Use `heroku config:set` or platform-specific secret management
+- Never rely on `.env` being present on server
+- Test `.env` variables aren't being accessed at startup
+
+#### 3. Bot Membership Requirements
+- Service bot must be explicitly invited to channels
+- Having token and channel ID is not enough
+- Bot needs "chat:write" permission in scope
+- Verify "Bot is member of channel" before debugging API errors
+
+#### 4. Error Handling Pattern for Critical Path
+```
+1. Try operation
+2. If success: log with [SERVICE] prefix
+3. If failure:
+   - Log error with [SERVICE] prefix
+   - Send to INCIDENTS channel
+   - Don't throw (critical path continues)
+   - Return error object, not exception
+```
+
+#### 5. Async Error Handling in Webhooks
+- Use `.then().catch()` chains instead of `try/catch` with await
+- Catch errors to prevent silent failures
+- Always log errors with service prefix for debugging
+- Example: `[Slack]`, `[GitHub]`, `[Notion]`
+
+#### 6. Deployment vs. Local Testing
+- For quick testing: use local server with ngrok/localtunnel
+- For serious testing: deploy to production (Heroku)
+- Production deployment catches issues localtunnel misses
+- Webhooks are more reliable hitting stable URLs
+
+#### 7. Environment-Specific Channels
+- Slack channel mapping prevents wrong notifications to wrong teams
+- feature/* → DEV (for developers)
+- develop → QA (for QA team)
+- main → PROD (for ops/leads)
+- Centralizes error notifications to INCIDENTS
+
+### End-to-End Flow (Verified Working)
+
+1. Developer pushes to `main` branch
+2. GitHub webhook POSTs to `https://claude-code-orchestrator-{id}.herokuapp.com/webhooks/github`
+3. Heroku server receives, validates signature
+4. Returns 200 OK immediately to GitHub
+5. Asynchronously:
+   - Extracts deployment data (commit, author, branch)
+   - Calls Slack API with deployment info
+   - Posts to #prod channel
+   - On error: posts to #incidents channel
+6. Slack message includes all deployment details
+
+### Configuration Checklist for Production
+
+- [ ] GitHub webhook configured pointing to Heroku app
+- [ ] SLACK_BOT_TOKEN set on Heroku
+- [ ] SLACK_PROD_CHANNEL_ID, QA, DEV, INCIDENTS set on Heroku
+- [ ] Bot invited to all 4 Slack channels
+- [ ] Bot has `chat:write` and `channels:read` scopes
+- [ ] SERVER listening on process.env.PORT (not hardcoded)
+- [ ] Async Slack calls don't block webhook response
+- [ ] Error handling posts to INCIDENTS on failures
+- [ ] Heroku logs accessible via `heroku logs --tail`
+
+---
+
 ## Architecture
 
 ### Components
@@ -427,39 +579,93 @@ cd ClaudeCodeOrchestrator && source .env && ...
 
 ### Slack notifications not appearing
 ```bash
-# 1. Ensure server is running
-lsof -i :3001    # Should show Node.js process
+# 1. Test Slack token directly
+node -e "const { WebClient } = require('@slack/web-api'); const slack = new WebClient(process.env.SLACK_BOT_TOKEN); (async () => { try { const result = await slack.auth.test(); console.log('Token valid:', result.user_id); } catch(e) { console.error('Token invalid:', e.message); } })();"
 
-# 2. Verify Slack tokens in .env
-echo $SLACK_BOT_TOKEN    # Should not be empty
+# 2. Verify bot is member of channel
+# Go to Slack channel → Add members → Search @claude_orchestrator → Add
 
-# 3. Check server logs for [Slack] errors
-# If server shows "[Slack] ❌" errors, verify:
-#    - SLACK_BOT_TOKEN is valid
-#    - Bot has "chat:write" permission
-#    - Bot is member of target channels
-#    - Channel IDs in .env are correct
+# 3. Check Heroku config vars
+heroku config --app claude-code-orchestrator | grep SLACK_
 
-# 4. Verify channel IDs in GitHub webhook request log
-# Look for "[GitHub] Deployment data:" output with correct branch
+# 4. Check Heroku logs for [Slack] errors
+heroku logs --app claude-code-orchestrator --tail
 
-# 5. Trigger a new webhook after server is running
-git commit --allow-empty -m "test deployment"
-git push origin main
+# 5. Verify GitHub webhook is hitting correct URL
+# Go to GitHub settings → Webhooks → Check "Recent Deliveries"
+# Look for 200 status (success) or error code (failure)
 ```
 
-### Server crashes when processing webhook
+### Slack API "not_authed" error
 ```bash
-# Check if dependencies are installed
-npm list @slack/web-api
-
-# Check .env file has all required Slack variables
-cat .env | grep SLACK_
-
-# Review error output in console logs
+# Bot token is invalid or from wrong app
+# Solution:
+# 1. Go to https://api.slack.com/apps
+# 2. Check you're in correct app ("Claude Orchestrator", not "Clawdbot")
+# 3. Click "OAuth & Permissions"
+# 4. Verify "chat:write" scope is in "Bot Token Scopes"
+# 5. Click "Install to Workspace" or "Reinstall to Workspace"
+# 6. Copy fresh "Bot User OAuth Token" (starts with xoxb-)
+# 7. Update: heroku config:set SLACK_BOT_TOKEN=xoxb-YOUR_NEW_TOKEN
 ```
 
-For detailed troubleshooting, see Phase 2 and Phase 3 documentation.
+### Slack API "not_in_channel" error
+```bash
+# Bot hasn't been invited to the channel
+# Solution:
+# 1. Go to Slack channel (e.g., #prod)
+# 2. Click channel name at top
+# 3. Click "Members" tab
+# 4. Click "Add a member"
+# 5. Search for "@claude_orchestrator"
+# 6. Click to add
+# Repeat for all 4 channels: #prod, #qa, #dev, #incidents
+```
+
+### Heroku app crashing (H10/H20 errors)
+```bash
+# App timeout on startup or after webhook
+# Check logs: heroku logs --app claude-code-orchestrator --tail
+
+# If see "Stopping process with SIGKILL":
+# - Problem: Server listening on wrong port
+# - Solution: Must use process.env.PORT, not hardcoded 3001
+# - Verify server.js has: const PORT = process.env.PORT || 3001;
+
+# If see slow response to webhook:
+# - Problem: Slack calls blocking webhook response
+# - Solution: Use .then() chains, not await in webhook handler
+# - Return 200 to GitHub immediately
+```
+
+### Webhook timeout (408/503 errors)
+```bash
+# GitHub webhook returns 408 (timeout) or Heroku returns 503
+# Root cause: Webhook handler blocking on external API call
+
+# Wrong pattern (blocks):
+# res.status(200).json({...});  // Don't send response
+# const slackResult = await slackHandler.sendDeploymentNotification();  // BLOCKS HERE
+
+# Correct pattern (async):
+# res.status(200).json({...});  // Send response first
+# slackHandler.sendDeploymentNotification().then(...).catch(...);  // Process async
+```
+
+### Environment variables not loading on Heroku
+```bash
+# .env file doesn't exist on Heroku - use config:set
+# WRONG: heroku push (or git push) and expect .env to be there
+# CORRECT: heroku config:set SLACK_BOT_TOKEN=xoxb-...
+
+# Verify config vars are set:
+heroku config --app claude-code-orchestrator
+
+# Set multiple at once:
+heroku config:set VAR1=value1 VAR2=value2 VAR3=value3 --app claude-code-orchestrator
+```
+
+For detailed troubleshooting, see Phase 3 implementation guide above.
 
 ---
 
@@ -505,14 +711,45 @@ For questions or issues:
 ## Status
 
 **Project Status:** Phase 3B (Clawdbot Setup)
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-01-28
 **Author:** Ken Shinzato
 **Repository:** https://github.com/moncalaworks-cpu/ClaudeCodeOrchestrator
 
-### Recent Changes (Phase 3)
+### Phase 3 Completion Summary (2026-01-28)
+
+**Implementation Status:** ✅ COMPLETE
+- Full end-to-end Slack integration working
+- Deployment notifications successfully posting to #prod, #qa, #dev
+- Error handling with #incidents fallback operational
+- Deployed on Heroku with 24/7 uptime
+
+**Verification:**
+- Pushed commit to main branch → Slack notification received in #prod ✅
+- Notification includes: deployment ID, repo, branch, commit SHA/message, author, timestamp ✅
+- Server handles GitHub webhooks async without timeouts ✅
+- Slack failures don't block GitHub webhook responses ✅
+
+**Critical Fixes Applied:**
+- ✅ Fixed Heroku PORT environment variable
+- ✅ Made Slack calls async (don't block webhook response)
+- ✅ Added bot to all deployment channels
+- ✅ Configured all environment variables on Heroku
+- ✅ Fixed webhook timeout issues
+
+**Key Learnings Documented:**
+- Webhook response timeout patterns
+- Environment variable management (local vs. production)
+- Slack bot membership and permissions
+- Error handling for async operations
+- When to use local tunneling vs. production deployment
+
+### Recent Changes (Phase 3 - Complete)
 - ✅ Added `@slack/web-api` SDK dependency
-- ✅ Created `handlers/slack.js` module
+- ✅ Created `handlers/slack.js` module with 3 functions
 - ✅ Integrated Slack handler into GitHub webhook
-- ✅ Implemented channel routing by branch
+- ✅ Implemented channel routing by branch (feature/*, develop, main)
 - ✅ Added error resilience with INCIDENTS channel fallback
-- ✅ Updated server to send deployment notifications
+- ✅ Deployed to Heroku with fixed PORT configuration
+- ✅ Configured bot token and channel IDs on Heroku
+- ✅ Verified end-to-end notifications working
+- ✅ Documented all issues and solutions in README
