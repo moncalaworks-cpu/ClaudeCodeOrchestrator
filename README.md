@@ -42,15 +42,15 @@ Deployment complete, status updated
 
 ## Current Status
 
-**Phases Completed:** 0, 1, 2 ✅
-**Current Phase:** 3 (Slack Configuration) - Next
+**Phases Completed:** 0, 1, 2, 3 ✅
+**Current Phase:** 3B (Clawdbot Setup) - Next
 
 | Phase | Title | Status |
 |-------|-------|--------|
 | 0 | Prerequisites & Accounts | ✅ Complete |
 | 1 | Notion Database Setup | ✅ Complete |
 | 2 | GitHub Configuration | ✅ Complete |
-| 3 | Slack Configuration | 🔄 In Progress |
+| 3 | Slack Integration | ✅ Complete |
 | 3B | Clawdbot Setup | ⏳ Pending |
 | 4 | Zapier Integration | ⏳ Pending |
 | 5-13 | Infrastructure & Deployment | ⏳ Pending |
@@ -71,12 +71,28 @@ Deployment complete, status updated
 - Webhook signature verification working
 - GitHub API integration tested
 
+### Phase 3: Slack Integration ✅
+- Slack bot token configured with messaging permissions
+- Channel mapping for deployment notifications:
+  - `feature/*` branches → DEV channel (`C0ABFT05V7E`)
+  - `develop` branch → QA channel (`C0ABFT1BRS8`)
+  - `main` branch → PROD channel (`C0AB5TMB0M9`)
+  - Errors → INCIDENTS channel (`C0ABA82PMN2`)
+- Slack handler module (`handlers/slack.js`) with three functions:
+  - `sendDeploymentNotification()` - Posts deployment status messages
+  - `getChannelForBranch()` - Maps branches to channels
+  - `postStatusUpdate()` - Stub for Phase 3B thread replies
+- Deployment notifications include: repository, branch, commit SHA, message, author, and timestamp
+- Error resilience: GitHub webhook continues even if Slack fails; errors logged and posted to INCIDENTS channel
+- @slack/web-api SDK integrated
+
 ### Local Orchestrator
 - Express.js server listening on port 3001
 - Webhook handler for GitHub push events
 - Signature verification for security
 - Branch filtering (feature/*, develop, main)
 - Deployment data extraction from git commits
+- Slack notification integration for deployment tracking
 
 ---
 
@@ -222,6 +238,51 @@ Expected response:
 }
 ```
 
+### 6. Verify Slack Integration (Phase 3)
+
+After starting the server, verify Slack notifications are working:
+
+**Step 1: Ensure server is running**
+```bash
+npm start
+# Output: Orchestrator webhook server listening on port 3001
+```
+
+**Step 2: Trigger a real GitHub webhook**
+
+Push a commit to a tracked branch (feature/*, develop, or main):
+```bash
+git commit --allow-empty -m "Test Phase 3 Slack integration"
+git push origin main
+```
+
+**Step 3: Check Slack notification**
+
+- For `main` branch → Check **#prod** channel
+- For `develop` branch → Check **#qa** channel
+- For `feature/*` branches → Check **#dev** channel
+- For errors → Check **#incidents** channel
+
+You should see a message like:
+```
+PROD deployment pending - deploy-main-1674567890
+
+Repository: moncalaworks-cpu/ClaudeCodeOrchestrator
+Branch: main
+Commit: abc1234 - Test Phase 3 Slack integration
+Author: Your Name
+Triggered: 2026-01-27T10:30:00Z
+```
+
+**Troubleshooting:**
+
+If no message appears:
+1. Verify server is still running: `lsof -i :3001`
+2. Check server console for `[Slack]` errors
+3. Verify `SLACK_BOT_TOKEN` and channel IDs in `.env`
+4. Ensure bot is member of target channels
+5. Check GitHub Recent Deliveries for webhook status
+
 ---
 
 ## Project Structure
@@ -234,7 +295,8 @@ ClaudeCodeOrchestrator/
 ├── .gitignore              # Git ignore rules
 ├── webhooks/
 │   └── github.js           # GitHub webhook handler
-├── handlers/               # Request handlers (future)
+├── handlers/
+│   └── slack.js            # Slack notification handler
 ├── agents/                 # AI agent implementations (future)
 └── README.md              # This file
 ```
@@ -250,14 +312,17 @@ ClaudeCodeOrchestrator/
 - Commit information extraction
 - Deployment ID generation
 - Environment variable management
+- Slack bot integration (@slack/web-api)
+- Environment-specific channel routing
+- Deployment status notifications with commit details
+- Error handling with INCIDENTS channel fallback
 
-### 🔄 In Progress (Phase 3)
-- Slack bot configuration
-- Team notification channels
-- Approval workflow
-
-### ⏳ Pending (Phases 3B-13)
+### 🔄 In Progress (Phase 3B)
 - Clawdbot Slack reaction listener
+- Thread replies for deployment status updates
+- Approval workflow automation
+
+### ⏳ Pending (Phases 4-13)
 - Zapier webhook processor
 - Notion state machine integration
 - Docker Hub image registry
@@ -301,26 +366,27 @@ The orchestrator logs important events:
 
 ## Next Steps
 
-1. **Phase 3: Slack Configuration**
-   - Create Slack bot with required permissions
-   - Configure notification channels
-   - Set up deployment status messages
+1. **Phase 3: Slack Integration** ✅ Complete
+   - ✅ Slack bot configured with messaging permissions
+   - ✅ Environment-specific notification channels set up
+   - ✅ Deployment status messages implemented
+   - ✅ Error handling with INCIDENTS channel fallback
 
-2. **Phase 3B: Clawdbot Setup**
+2. **Phase 3B: Clawdbot Setup** (Current)
    - Install Clawdbot CLI
-   - Configure reaction listener
-   - Set up local Claude Code integration
+   - Configure Slack reaction listener (✅/❌ on threads)
+   - Set up approval workflow with Claude Code
+   - Implement thread status updates
 
 3. **Phase 4: Zapier Integration**
-   - Create Zapier webhook
-   - Map fields to Notion
-   - Test approval workflow
+   - Create Zapier webhook for reaction processing
+   - Map approval fields to Notion
+   - Test end-to-end approval workflow
 
-4. **Phases 5-13: Infrastructure**
+4. **Phases 5-13: Infrastructure & Agents**
    - Heroku app setup (DEV, QA, PROD)
    - Docker Hub configuration
-   - Claude API integration
-   - Agent deployment
+   - Claude API agent implementation
    - End-to-end testing
    - Production launch
 
@@ -359,7 +425,41 @@ cd ClaudeCodeOrchestrator && source .env && ...
 # Check PAT has required scopes: repo, workflow, read:org
 ```
 
-For detailed troubleshooting, see Phase 2 documentation.
+### Slack notifications not appearing
+```bash
+# 1. Ensure server is running
+lsof -i :3001    # Should show Node.js process
+
+# 2. Verify Slack tokens in .env
+echo $SLACK_BOT_TOKEN    # Should not be empty
+
+# 3. Check server logs for [Slack] errors
+# If server shows "[Slack] ❌" errors, verify:
+#    - SLACK_BOT_TOKEN is valid
+#    - Bot has "chat:write" permission
+#    - Bot is member of target channels
+#    - Channel IDs in .env are correct
+
+# 4. Verify channel IDs in GitHub webhook request log
+# Look for "[GitHub] Deployment data:" output with correct branch
+
+# 5. Trigger a new webhook after server is running
+git commit --allow-empty -m "test deployment"
+git push origin main
+```
+
+### Server crashes when processing webhook
+```bash
+# Check if dependencies are installed
+npm list @slack/web-api
+
+# Check .env file has all required Slack variables
+cat .env | grep SLACK_
+
+# Review error output in console logs
+```
+
+For detailed troubleshooting, see Phase 2 and Phase 3 documentation.
 
 ---
 
@@ -404,7 +504,15 @@ For questions or issues:
 
 ## Status
 
-**Project Status:** Early stage development
-**Last Updated:** 2026-01-26
+**Project Status:** Phase 3B (Clawdbot Setup)
+**Last Updated:** 2026-01-27
 **Author:** Ken Shinzato
 **Repository:** https://github.com/moncalaworks-cpu/ClaudeCodeOrchestrator
+
+### Recent Changes (Phase 3)
+- ✅ Added `@slack/web-api` SDK dependency
+- ✅ Created `handlers/slack.js` module
+- ✅ Integrated Slack handler into GitHub webhook
+- ✅ Implemented channel routing by branch
+- ✅ Added error resilience with INCIDENTS channel fallback
+- ✅ Updated server to send deployment notifications
