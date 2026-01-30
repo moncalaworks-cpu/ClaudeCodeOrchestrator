@@ -33,6 +33,9 @@ jobs:
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
         run: |
+          # Install jq for JSON parsing
+          sudo apt-get update > /dev/null && sudo apt-get install -y jq > /dev/null
+
           # Find the deployment record and update status to Deployed
           echo "📝 Updating Notion: $DEPLOYMENT_ID -> Deployed"
           echo "Database ID: $NOTION_DATABASE_ID"
