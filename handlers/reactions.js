@@ -5,8 +5,11 @@
 
 const { WebClient } = require('@slack/web-api');
 const https = require('https');
+const { exec } = require('child_process');
+const { promisify } = require('util');
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+const execAsync = promisify(exec);
 
 /**
  * Handle reaction_added event from Slack
@@ -216,26 +219,55 @@ async function replyToThread(channel, threadTs, status) {
 }
 
 /**
- * Post deployment approval to Slack with Heroku deploy command
+ * Trigger Heroku deployment via git push
  * @param {string} channel - Slack channel ID
  * @param {string} threadTs - Thread timestamp
  * @param {string} deploymentId - Deployment ID
  */
 async function postDeploymentCommand(channel, threadTs, deploymentId) {
   try {
-    const deployCommand = 'git push heroku main';
-    const message = `🚀 Ready to deploy! Run this command to deploy to Heroku:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nDeployment ID: ${deploymentId}`;
+    console.log(`[Slack Reactions] Triggering Heroku deployment for ${deploymentId}`);
 
+    // Post initial status message
     await slack.chat.postMessage({
       channel: channel,
       thread_ts: threadTs,
-      text: message,
+      text: `⏳ Deploying to Heroku...`,
       mrkdwn: true
     });
 
-    console.log(`[Slack Reactions] Posted deployment command for ${deploymentId}`);
+    // Execute git push heroku main
+    try {
+      const { stdout, stderr } = await execAsync('git push heroku main', { timeout: 120000 });
+
+      console.log(`[Slack Reactions] ✅ Deployment succeeded for ${deploymentId}`);
+      console.log(`[Slack Reactions] Heroku output: ${stdout.substring(0, 500)}`);
+
+      // Update with success message
+      await slack.chat.postMessage({
+        channel: channel,
+        thread_ts: threadTs,
+        text: `✅ Deployment to Heroku completed successfully!\n\nDeployment ID: ${deploymentId}`,
+        mrkdwn: true
+      });
+
+    } catch (deployError) {
+      console.error(`[Slack Reactions] ❌ Deployment failed: ${deployError.message}`);
+
+      // Post fallback command on failure
+      const deployCommand = 'git push heroku main';
+      const message = `❌ Automatic deployment failed. Run this command manually:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nError: ${deployError.message}\nDeployment ID: ${deploymentId}`;
+
+      await slack.chat.postMessage({
+        channel: channel,
+        thread_ts: threadTs,
+        text: message,
+        mrkdwn: true
+      });
+    }
+
   } catch (error) {
-    console.error(`[Slack Reactions] Error posting deployment command: ${error.message}`);
+    console.error(`[Slack Reactions] Error in deployment process: ${error.message}`);
   }
 }
 
