@@ -265,10 +265,11 @@ async function triggerGitHubDeployment(channel, threadTs, deploymentId, approver
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             console.log(`[Slack Reactions] ✅ GitHub Actions triggered for ${deploymentId}`);
+            const actionsUrl = `https://github.com/${owner}/${repo}/actions/workflows/deploy.yml`;
             slack.chat.postMessage({
               channel: channel,
               thread_ts: threadTs,
-              text: `✅ Deployment initiated! GitHub Actions is deploying...\n\nDeployment ID: ${deploymentId}`,
+              text: `✅ Deployment initiated!\n\n<${actionsUrl}|View deployment in GitHub Actions>\n\nDeployment ID: ${deploymentId}`,
               mrkdwn: true
             }).catch(err => console.error(`[Slack Reactions] Error posting success: ${err.message}`));
             resolve(true);
