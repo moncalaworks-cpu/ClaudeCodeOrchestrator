@@ -75,8 +75,12 @@ async function approveDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} approved by ${userName}`);
 
-    // Trigger Heroku deployment
-    await triggerHerokuDeployment(deploymentId, userName);
+    // Trigger Heroku deployment (optional - requires HEROKU_API_TOKEN)
+    if (process.env.HEROKU_API_TOKEN && process.env.HEROKU_APP_NAME) {
+      await triggerHerokuDeployment(deploymentId, userName);
+    } else {
+      console.log(`[Slack Reactions] Heroku deployment skipped (HEROKU_API_TOKEN or HEROKU_APP_NAME not configured)`);
+    }
 
     // TODO: Phase 4 - Update Notion deployment record
     // Example:
