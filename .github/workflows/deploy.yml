@@ -1,0 +1,28 @@
+name: Deploy to Heroku
+
+on:
+  repository_dispatch:
+    types: [deployment-approved]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy to Heroku
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
+          APPROVER: ${{ github.event.client_payload.approver }}
+        run: |
+          echo "🚀 Deploying $DEPLOYMENT_ID (approved by $APPROVER)..."
+          git config user.email "orchestrator@heroku.local"
+          git config user.name "Claude Orchestrator"
+          git remote add heroku https://git.heroku.com/claude-code-orchestrator.git
+          git push https://oauth2:${HEROKU_API_KEY}@git.heroku.com/claude-code-orchestrator.git HEAD:main
+          echo "✅ Deployment to Heroku completed!"

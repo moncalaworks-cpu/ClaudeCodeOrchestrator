@@ -78,8 +78,8 @@ async function approveDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} approved by ${userName}`);
 
-    // Post deployment command to thread
-    await postDeploymentCommand(channel, threadTs, deploymentId);
+    // Trigger GitHub Actions deployment
+    await triggerGitHubDeployment(channel, threadTs, deploymentId, userName);
 
     // TODO: Phase 4 - Update Notion deployment record
     // Example:
@@ -219,26 +219,94 @@ async function replyToThread(channel, threadTs, status) {
 }
 
 /**
- * Trigger Heroku deployment via git push
+ * Trigger GitHub Actions deployment via repository_dispatch
+ * @param {string} channel - Slack channel ID
+ * @param {string} threadTs - Thread timestamp
+ * @param {string} deploymentId - Deployment ID
+ * @param {string} approver - User who approved
+ */
+async function triggerGitHubDeployment(channel, threadTs, deploymentId, approver) {
+  try {
+    const githubToken = process.env.GITHUB_TOKEN;
+    const githubRepo = process.env.GITHUB_REPO;
+
+    if (!githubToken || !githubRepo) {
+      console.warn('[Slack Reactions] GITHUB_TOKEN or GITHUB_REPO not set, posting manual command');
+      await postDeploymentCommand(channel, threadTs, deploymentId);
+      return;
+    }
+
+    console.log(`[Slack Reactions] Triggering GitHub Actions for ${deploymentId}`);
+
+    const [owner, repo] = githubRepo.split('/');
+    const options = {
+      hostname: 'api.github.com',
+      path: `/repos/${owner}/${repo}/dispatches`,
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Claude-Code-Orchestrator'
+      }
+    };
+
+    const payload = {
+      event_type: 'deployment-approved',
+      client_payload: {
+        deployment_id: deploymentId,
+        approver: approver
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`[Slack Reactions] ✅ GitHub Actions triggered for ${deploymentId}`);
+            slack.chat.postMessage({
+              channel: channel,
+              thread_ts: threadTs,
+              text: `✅ Deployment initiated! GitHub Actions is deploying...\n\nDeployment ID: ${deploymentId}`,
+              mrkdwn: true
+            }).catch(err => console.error(`[Slack Reactions] Error posting success: ${err.message}`));
+            resolve(true);
+          } else {
+            const errorMsg = `GitHub API ${res.statusCode}: ${data}`;
+            console.error(`[Slack Reactions] ❌ ${errorMsg}`);
+            postDeploymentCommand(channel, threadTs, deploymentId);
+            resolve(false);
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error(`[Slack Reactions] Error calling GitHub API: ${error.message}`);
+        postDeploymentCommand(channel, threadTs, deploymentId);
+        resolve(false);
+      });
+
+      req.write(JSON.stringify(payload));
+      req.end();
+    });
+
+  } catch (error) {
+    console.error(`[Slack Reactions] Error in triggerGitHubDeployment: ${error.message}`);
+    await postDeploymentCommand(channel, threadTs, deploymentId);
+  }
+}
+
+/**
+ * Post deployment command to Slack (fallback if GitHub Actions fails)
  * @param {string} channel - Slack channel ID
  * @param {string} threadTs - Thread timestamp
  * @param {string} deploymentId - Deployment ID
  */
 async function postDeploymentCommand(channel, threadTs, deploymentId) {
   try {
-    console.log(`[Slack Reactions] Triggering Heroku deployment for ${deploymentId}`);
-
-    // Post initial status message
-    await slack.chat.postMessage({
-      channel: channel,
-      thread_ts: threadTs,
-      text: `⏳ Deploying to Heroku...`,
-      mrkdwn: true
-    });
-
-    // Post deployment command to thread
     const deployCommand = 'git push heroku main';
-    const message = `🚀 Ready to deploy! Run this from your terminal:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nDeployment ID: ${deploymentId}`;
+    const message = `Manual deployment fallback:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nDeployment ID: ${deploymentId}`;
 
     await slack.chat.postMessage({
       channel: channel,
@@ -247,10 +315,9 @@ async function postDeploymentCommand(channel, threadTs, deploymentId) {
       mrkdwn: true
     });
 
-    console.log(`[Slack Reactions] Posted deployment command for ${deploymentId}`);
-
+    console.log(`[Slack Reactions] Posted fallback deployment command for ${deploymentId}`);
   } catch (error) {
-    console.error(`[Slack Reactions] Error in deployment process: ${error.message}`);
+    console.error(`[Slack Reactions] Error posting deployment command: ${error.message}`);
   }
 }
 
@@ -261,5 +328,6 @@ module.exports = {
   validateApprover,
   replyToThread,
   extractDeploymentId,
+  triggerGitHubDeployment,
   postDeploymentCommand
 };
