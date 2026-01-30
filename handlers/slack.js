@@ -44,11 +44,12 @@ async function sendDeploymentNotification(deploymentData) {
       statusLabel = 'PROD deployment pending';
     }
 
+    const commitUrl = `https://github.com/${deploymentData.repository}/commit/${deploymentData.commit_sha}`;
     const message = `${statusLabel} - ${deploymentData.deployment_id}
 
 Repository: ${deploymentData.repository}
 Branch: ${deploymentData.branch}
-Commit: ${deploymentData.commit_sha} - ${deploymentData.commit_message}
+Commit: <${commitUrl}|${deploymentData.commit_sha}> - ${deploymentData.commit_message}
 Author: ${deploymentData.commit_author}
 Triggered: ${deploymentData.triggered_at}`;
 
