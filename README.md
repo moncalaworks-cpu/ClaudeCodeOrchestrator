@@ -772,7 +772,7 @@ For questions or issues:
 ## Status
 
 **Project Status:** Phase 5 (Infrastructure & Deployment) - Pending
-**Last Updated:** 2026-01-30 (Fixed Notion title field filter syntax)
+**Last Updated:** 2026-01-30 (Phase 4 Complete - Notion API Integration)
 **Author:** Ken Shinzato
 **Repository:** https://github.com/moncalaworks-cpu/ClaudeCodeOrchestrator
 
@@ -852,3 +852,103 @@ For questions or issues:
 - ✅ Created CLAUDE.md documentation for future instances
 - ✅ Updated README with complete Phase 3B implementation
 - ✅ Verified end-to-end approval to Heroku deployment workflow
+
+### Phase 4 Completion Summary (2026-01-30)
+
+**Implementation Status:** ✅ COMPLETE
+- Direct Notion API integration via GitHub Actions workflow
+- Automatic deployment record queries and status updates
+- Real-time deployment tracking in central Notion database
+- Dynamic property ID discovery from database schema
+- Support for multiple Notion property types (title, rich_text, select)
+
+**Complete Deployment Workflow (with Notion):**
+1. Developer pushes code → GitHub webhook triggers
+2. Orchestrator posts notification to Slack with commit link
+3. User reviews and reacts with ✅ to approve
+4. Orchestrator posts approval message
+5. GitHub Actions workflow triggers via repository_dispatch
+6. GitHub Action runs `git push heroku main`
+7. Heroku detects push and auto-deploys
+8. **NEW:** GitHub Actions queries Notion database for deployment record
+9. **NEW:** Updates Notion record with "Deployed" status and "Success" stage
+10. Slack displays confirmation with Heroku progress link
+
+**Verification:**
+- GitHub push → Slack notification ✅
+- User reacts with ✅ → Approval message posted ✅
+- GitHub Actions deploys to Heroku ✅
+- GitHub Actions queries Notion database ✅
+- Deployment record found by Deployment ID ✅
+- Notion "Current Stage" updated to "Deployed" ✅
+- Notion "Deployment Status" updated to "Success" ✅
+
+**Key Features Implemented:**
+- Direct Notion API integration (no Zapier needed)
+- Automatic database schema discovery to find property IDs
+- Dynamic filter type selection (title, rich_text, select)
+- Real-time status updates on deployment completion
+- Proper error handling with debug logging
+- Support for Notion's encoded property IDs
+
+**Lessons Learned:**
+
+1. **Notion Property IDs are URL-encoded**
+   - Property IDs aren't human-readable (e.g., "J%5DCf" for "Current Stage")
+   - Must use property ID, not property display name, in filters
+   - Property IDs are stable even if display name changes
+
+2. **Title field requires different filter syntax**
+   - Notion's primary field (title) uses `"title"` filter type
+   - Text fields use `"rich_text"` filter type
+   - Must match property type to filter type or API returns validation error
+   - Solution: Query database schema to discover property types
+
+3. **Secrets in GitHub Actions can have trailing whitespace**
+   - Copy-pasting secrets into GitHub Settings can add invisible spaces/newlines
+   - Always trim secrets with `xargs` to avoid "invalid_request_url" errors
+   - 37-character database ID = 32-char ID + 5 spaces of whitespace
+
+4. **jq isn't pre-installed on GitHub Actions runners**
+   - Must explicitly install jq with `apt-get` before using it
+   - Script fails silently with `-e` flag when command not found
+   - Include `apt-get install -y jq` step before JSON parsing
+
+5. **Use heredoc syntax for JSON in shell scripts**
+   - Avoid inline JSON strings with variable interpolation
+   - Heredoc (`<<EOF`) is cleaner and safer for multi-line JSON
+   - Easier to debug when actual JSON is logged
+
+6. **Always disable -e flag and add logging**
+   - With `-e`, script exits silently on any error
+   - Use `set +e` to see actual error messages
+   - Log at each step: "Installing...", "Querying...", "Updating..."
+   - Pretty-print JSON with `jq '.'` for readability
+
+7. **Notion API requires bearer token format**
+   - Authorization header must be: `"Authorization: Bearer $TOKEN"`
+   - Not just the token value
+   - 400 errors are validation errors, 401 are auth errors
+
+8. **Query Notion schema to discover structure**
+   - Instead of hardcoding property names, fetch schema dynamically
+   - Use `jq` to extract property IDs and types
+   - Single API call reveals entire database structure
+   - More robust than manual property ID lookup in Notion UI
+
+**Implementation Details:**
+- `.github/workflows/deploy.yml` - Updated deploy step to call Notion API
+- Step 1: Fetch database schema via GET /databases/{id}
+- Step 2: Extract property ID for "Deployment ID" field
+- Step 3: Query for matching deployment record
+- Step 4: Update matching record with "Deployed" status
+- All operations wrapped with proper error handling and logging
+
+**What Worked Well:**
+- GitHub Actions provides reliable CI/CD execution
+- Notion API is well-documented and stable
+- Dynamic schema discovery eliminated hardcoding
+- Proper logging made debugging straightforward
+
+**Next Phase:**
+- Phase 5: Infrastructure & Deployment (Docker, multi-environment setup, Claude API agents)
