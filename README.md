@@ -42,8 +42,8 @@ Deployment complete, status updated
 
 ## Current Status
 
-**Phases Completed:** 0, 1, 2, 3 ✅
-**Current Phase:** 3B (Clawdbot Setup) - Next
+**Phases Completed:** 0, 1, 2, 3, 3B ✅
+**Current Phase:** 4 (Zapier Integration) - Next
 
 | Phase | Title | Status |
 |-------|-------|--------|
@@ -51,7 +51,7 @@ Deployment complete, status updated
 | 1 | Notion Database Setup | ✅ Complete |
 | 2 | GitHub Configuration | ✅ Complete |
 | 3 | Slack Integration | ✅ Complete |
-| 3B | Clawdbot Setup | ⏳ Pending |
+| 3B | Slack Reactions & Approvals | ✅ Complete |
 | 4 | Zapier Integration | ⏳ Pending |
 | 5-13 | Infrastructure & Deployment | ⏳ Pending |
 
@@ -72,19 +72,27 @@ Deployment complete, status updated
 - GitHub API integration tested
 
 ### Phase 3: Slack Integration ✅
-- Slack bot token configured with messaging permissions
+- Slack bot token configured with messaging and event permissions
 - Channel mapping for deployment notifications:
   - `feature/*` branches → DEV channel (`C0ABFT05V7E`)
   - `develop` branch → QA channel (`C0ABFT1BRS8`)
   - `main` branch → PROD channel (`C0AB5TMB0M9`)
   - Errors → INCIDENTS channel (`C0ABA82PMN2`)
-- Slack handler module (`handlers/slack.js`) with three functions:
-  - `sendDeploymentNotification()` - Posts deployment status messages
-  - `getChannelForBranch()` - Maps branches to channels
-  - `postStatusUpdate()` - Stub for Phase 3B thread replies
+- Slack handler module (`handlers/slack.js`) with deployment notification functions
 - Deployment notifications include: repository, branch, commit SHA, message, author, and timestamp
 - Error resilience: GitHub webhook continues even if Slack fails; errors logged and posted to INCIDENTS channel
 - @slack/web-api SDK integrated
+
+### Phase 3B: Slack Reactions & Approvals ✅
+- Event Subscriptions configured in Slack API
+- Slack reactions handler (`handlers/reactions.js`) listening for approval/rejection emoji:
+  - ✅ and +1 reactions → Approve deployment
+  - ❌ and -1 reactions → Reject deployment
+- Comprehensive test suite with 31 passing tests
+- Approval workflow extracts deployment ID from message text
+- Thread replies show approval/rejection status with user name
+- Bot token scopes configured: `chat:write`, `users:read`, `conversations:history`
+- End-to-end approval workflow tested and working
 
 ### Local Orchestrator
 - Express.js server listening on port 3001
@@ -258,32 +266,26 @@ Deployment complete, status updated
 │  • Commit info extracted                 │
 └──────────────────────────────────────────┘
                     ↓
-┌─ Local Orchestrator ─────────────────────┐
-│  • Receives webhook                      │
+┌─ Orchestrator Server ───────────────────┐
+│  • Receives GitHub webhooks              │
 │  • Validates signature                   │
 │  • Extracts deployment data              │
-│  • Routes to Notion/Agents              │
-└──────────────────────────────────────────┘
-                    ↓
-┌─ Notion ────────────────────────────────┐
-│  • Central state ledger                  │
-│  • Tracks all deployments                │
-│  • Integration status tracking           │
+│  • Sends Slack notification              │
 └──────────────────────────────────────────┘
                     ↓
 ┌─ Slack ─────────────────────────────────┐
-│  • Team notifications                    │
-│  • Approval reactions (✅/❌)             │
-│  • Status updates                        │
+│  • Posts deployment notification         │
+│  • Listens for reactions (✅/❌)         │
+│  • Posts approval/rejection reply        │
 └──────────────────────────────────────────┘
                     ↓
-┌─ Clawdbot + Claude Code ────────────────┐
-│  • Listens to Slack reactions            │
-│  • Validates with Claude AI              │
-│  • Updates Notion via Zapier             │
+┌─ Notion (Phase 4) ──────────────────────┐
+│  • Central state ledger                  │
+│  • Tracks all deployments                │
+│  • Updated via Zapier                    │
 └──────────────────────────────────────────┘
                     ↓
-┌─ Heroku ────────────────────────────────┐
+┌─ Heroku (Phase 5+) ─────────────────────┐
 │  • DEV, QA, PROD environments            │
 │  • Deployment target                     │
 │  • Auto-rollback on failure              │
@@ -304,7 +306,7 @@ Deployment complete, status updated
 - Zapier account
 
 ### Required Tools
-- **Node.js** ≥ 22 (for Clawdbot support)
+- **Node.js** ≥ 18 (tested with 22+)
 - **Git CLI**
 - **Docker CLI**
 - **Heroku CLI**
@@ -345,18 +347,18 @@ cat > .env << 'EOF'
 GITHUB_PAT=ghp_YOUR_PAT_HERE
 GITHUB_REPO=moncalaworks-cpu/ClaudeCodeOrchestrator
 GITHUB_WEBHOOK_SECRET=YOUR_SECRET_HERE
-GITHUB_WEBHOOK_URL=https://webhook.site/your-unique-id
-
-# Notion
-NOTION_API_TOKEN=PLACEHOLDER
-NOTION_DATABASE_ID=PLACEHOLDER
 
 # Slack
-SLACK_BOT_TOKEN=PLACEHOLDER
-SLACK_APP_TOKEN=PLACEHOLDER
+SLACK_BOT_TOKEN=xoxb-YOUR_TOKEN_HERE
+SLACK_SIGNING_SECRET=YOUR_SIGNING_SECRET_HERE
+SLACK_DEV_CHANNEL_ID=C0ABFT05V7E
+SLACK_QA_CHANNEL_ID=C0ABFT1BRS8
+SLACK_PROD_CHANNEL_ID=C0AB5TMB0M9
+SLACK_INCIDENTS_CHANNEL_ID=C0ABA82PMN2
 
-# Orchestrator
-ORCHESTRATOR_PORT=3001
+# Notion (for Phase 4+)
+NOTION_API_TOKEN=PLACEHOLDER
+NOTION_DATABASE_ID=PLACEHOLDER
 EOF
 ```
 
@@ -441,16 +443,21 @@ If no message appears:
 
 ```
 ClaudeCodeOrchestrator/
-├── server.js                 # Main Express server
-├── package.json             # Dependencies
-├── .env                     # Environment variables (git-ignored)
-├── .gitignore              # Git ignore rules
+├── server.js                           # Main Express server
+├── package.json                        # Dependencies
+├── jest.config.js                      # Jest test configuration
+├── CLAUDE.md                           # Claude Code guidance
+├── .env                                # Environment variables (git-ignored)
+├── .gitignore                          # Git ignore rules
 ├── webhooks/
-│   └── github.js           # GitHub webhook handler
+│   └── github.js                       # GitHub webhook handler
 ├── handlers/
-│   └── slack.js            # Slack notification handler
-├── agents/                 # AI agent implementations (future)
-└── README.md              # This file
+│   ├── slack.js                        # Slack notification handler
+│   ├── reactions.js                    # Slack reactions handler (approvals/rejections)
+│   └── __tests__/
+│       └── reactions.test.js           # Jest tests (31 tests, all passing)
+├── agents/                             # AI agent implementations (future)
+└── README.md                           # This file
 ```
 
 ---
@@ -462,24 +469,24 @@ ClaudeCodeOrchestrator/
 - Express.js server for receiving webhooks
 - Automatic branch filtering (feature/*, develop, main)
 - Commit information extraction
-- Deployment ID generation
+- Deployment ID generation with timestamps
 - Environment variable management
 - Slack bot integration (@slack/web-api)
-- Environment-specific channel routing
+- Environment-specific channel routing for notifications
 - Deployment status notifications with commit details
 - Error handling with INCIDENTS channel fallback
-
-### 🔄 In Progress (Phase 3B)
-- Clawdbot Slack reaction listener
-- Thread replies for deployment status updates
-- Approval workflow automation
+- Slack Event Subscriptions configured
+- Approval/rejection reactions (✅/❌ and +1/-1)
+- Thread replies showing approval status with user names
+- Comprehensive test suite (31 tests, all passing)
 
 ### ⏳ Pending (Phases 4-13)
-- Zapier webhook processor
+- Zapier webhook processor for Notion updates
 - Notion state machine integration
 - Docker Hub image registry
 - Heroku multi-environment deployment
 - Claude API agent orchestration
+- Auto-deployment trigger on approval
 - End-to-end testing
 - Production deployment
 
@@ -518,27 +525,25 @@ The orchestrator logs important events:
 
 ## Next Steps
 
-1. **Phase 3: Slack Integration** ✅ Complete
-   - ✅ Slack bot configured with messaging permissions
-   - ✅ Environment-specific notification channels set up
-   - ✅ Deployment status messages implemented
-   - ✅ Error handling with INCIDENTS channel fallback
+1. **Phase 3B: Slack Reactions & Approvals** ✅ Complete
+   - ✅ Event Subscriptions configured in Slack API
+   - ✅ Reaction handler built and tested (31 tests passing)
+   - ✅ Approval/rejection workflow implemented
+   - ✅ Thread replies with status updates working
+   - ✅ End-to-end testing verified
 
-2. **Phase 3B: Clawdbot Setup** (Current)
-   - Install Clawdbot CLI
-   - Configure Slack reaction listener (✅/❌ on threads)
-   - Set up approval workflow with Claude Code
-   - Implement thread status updates
+2. **Phase 4: Zapier Integration** (Current)
+   - Create Zapier webhook for reaction events
+   - Map approval/rejection to Notion database
+   - Update deployment status in Notion
+   - Test end-to-end workflow
 
-3. **Phase 4: Zapier Integration**
-   - Create Zapier webhook for reaction processing
-   - Map approval fields to Notion
-   - Test end-to-end approval workflow
-
-4. **Phases 5-13: Infrastructure & Agents**
-   - Heroku app setup (DEV, QA, PROD)
+3. **Phases 5-13: Infrastructure & Agents**
+   - Heroku app setup (DEV, QA, PROD environments)
    - Docker Hub configuration
    - Claude API agent implementation
+   - Auto-deployment on approval
+   - Multi-environment orchestration
    - End-to-end testing
    - Production launch
 
@@ -596,17 +601,20 @@ heroku logs --app claude-code-orchestrator --tail
 # Look for 200 status (success) or error code (failure)
 ```
 
-### Slack API "not_authed" error
+### Slack API "not_authed" or "invalid_auth" error
 ```bash
-# Bot token is invalid or from wrong app
+# Bot token is invalid or missing required scopes
 # Solution:
-# 1. Go to https://api.slack.com/apps
-# 2. Check you're in correct app ("Claude Orchestrator", not "Clawdbot")
-# 3. Click "OAuth & Permissions"
-# 4. Verify "chat:write" scope is in "Bot Token Scopes"
-# 5. Click "Install to Workspace" or "Reinstall to Workspace"
-# 6. Copy fresh "Bot User OAuth Token" (starts with xoxb-)
-# 7. Update: heroku config:set SLACK_BOT_TOKEN=xoxb-YOUR_NEW_TOKEN
+# 1. Go to https://api.slack.com/apps → Select "Claude Orchestrator"
+# 2. Click "OAuth & Permissions"
+# 3. Verify required scopes in "Bot Token Scopes":
+#    - chat:write (for posting messages)
+#    - users:read (for approval/rejection reactions)
+#    - conversations:history (for reading messages in reactions)
+# 4. Click "Install to Workspace" or "Reinstall to Workspace"
+# 5. Copy fresh "Bot User OAuth Token" (starts with xoxb-)
+# 6. Update Heroku: heroku config:set SLACK_BOT_TOKEN=xoxb-YOUR_NEW_TOKEN
+# 7. Restart app: heroku restart
 ```
 
 ### Slack API "not_in_channel" error
@@ -673,28 +681,28 @@ For detailed troubleshooting, see Phase 3 implementation guide above.
 
 - **Node.js** - Runtime
 - **Express.js** - Web framework
+- **Jest** - Unit testing framework
 - **GitHub API** - Version control integration
-- **Notion API** - State management
-- **Slack API** - Team notifications
-- **Zapier** - Webhook processor
-- **Heroku** - Container deployment
-- **Docker** - Image building
-- **Claude API** - AI agents
-- **Clawdbot** - Slack event listener
+- **Slack API** - Team notifications and event subscriptions
+- **Notion API** - State management (Phase 4+)
+- **Zapier** - Webhook processor (Phase 4+)
+- **Heroku** - Container deployment (Phase 5+)
+- **Docker** - Image building (Phase 5+)
+- **Claude API** - AI agents (Phase 5+)
 
 ---
 
-## Contributing
+## Development
 
-This is an active development project. See documentation files for implementation details:
+This is an active development project. For implementation details:
 
-- `PHASE_0_PREREQUISITES.md` - Account & tool setup
-- `PHASE_1_NOTION_SETUP.md` - Database configuration
-- `PHASE_2_GITHUB_CONFIG.md` - Webhook integration
-- `PHASE_3_SLACK_CONFIG.md` - Bot setup
-- `PHASE_3B_CLAWDBOT_SETUP.md` - Reaction listener
-- `PHASE_4_ZAPIER_INTEGRATION.md` - Webhook processor
-- `PHASE_5+_*.md` - Infrastructure & agents
+- **CLAUDE.md** - Claude Code guidance for future instances
+- **README.md** - This file with complete documentation
+- `npm test` - Run 31 passing unit tests
+- `npm start` - Start the orchestrator server locally
+- Heroku logs - `heroku logs --app claude-code-orchestrator --tail`
+
+Phase-specific documentation can be added as each phase completes.
 
 ---
 
@@ -710,46 +718,48 @@ For questions or issues:
 
 ## Status
 
-**Project Status:** Phase 3B (Clawdbot Setup)
-**Last Updated:** 2026-01-28
+**Project Status:** Phase 4 (Zapier Integration) - Pending
+**Last Updated:** 2026-01-30
 **Author:** Ken Shinzato
 **Repository:** https://github.com/moncalaworks-cpu/ClaudeCodeOrchestrator
 
-### Phase 3 Completion Summary (2026-01-28)
+### Phase 3B Completion Summary (2026-01-30)
 
 **Implementation Status:** ✅ COMPLETE
-- Full end-to-end Slack integration working
-- Deployment notifications successfully posting to #prod, #qa, #dev
-- Error handling with #incidents fallback operational
-- Deployed on Heroku with 24/7 uptime
+- Full end-to-end Slack approval workflow working
+- Event Subscriptions configured in Slack API
+- Approval/rejection reactions (✅/❌) triggering handler
+- Thread replies showing approval status with user names
+- All 31 unit tests passing
 
 **Verification:**
-- Pushed commit to main branch → Slack notification received in #prod ✅
-- Notification includes: deployment ID, repo, branch, commit SHA/message, author, timestamp ✅
-- Server handles GitHub webhooks async without timeouts ✅
-- Slack failures don't block GitHub webhook responses ✅
+- GitHub push → Slack notification to #prod ✅
+- User reacts with ✅ → Approval message posted to thread ✅
+- Deployment ID extracted from message ✅
+- User info fetched for audit trail ✅
+- Handler properly mocked in tests (fixed from 17 failures) ✅
 
-**Critical Fixes Applied:**
-- ✅ Fixed Heroku PORT environment variable
-- ✅ Made Slack calls async (don't block webhook response)
-- ✅ Added bot to all deployment channels
-- ✅ Configured all environment variables on Heroku
-- ✅ Fixed webhook timeout issues
+**Implementation Details:**
+- `handlers/reactions.js` - Slack reaction event handler with approval/rejection logic
+- `handlers/__tests__/reactions.test.js` - 31 comprehensive tests (6 extraction, 7 reaction handling, 8 approval, 5 rejection, 3 thread reply, 2 integration)
+- `server.js` - `/slack/events` endpoint with URL verification and event routing
+- Scopes configured: `chat:write`, `users:read`, `conversations:history`
+- Created CLAUDE.md for future Claude instances
 
-**Key Learnings Documented:**
-- Webhook response timeout patterns
-- Environment variable management (local vs. production)
-- Slack bot membership and permissions
-- Error handling for async operations
-- When to use local tunneling vs. production deployment
+**Key Features Implemented:**
+- Emoji reaction detection (✅, ❌, +1, -1)
+- Deployment ID extraction via regex pattern matching
+- User info lookup for approval attribution
+- Thread status updates with markdown support
+- Comprehensive error handling and logging
+- Mock-based unit testing with Jest
 
-### Recent Changes (Phase 3 - Complete)
-- ✅ Added `@slack/web-api` SDK dependency
-- ✅ Created `handlers/slack.js` module with 3 functions
-- ✅ Integrated Slack handler into GitHub webhook
-- ✅ Implemented channel routing by branch (feature/*, develop, main)
-- ✅ Added error resilience with INCIDENTS channel fallback
-- ✅ Deployed to Heroku with fixed PORT configuration
-- ✅ Configured bot token and channel IDs on Heroku
-- ✅ Verified end-to-end notifications working
-- ✅ Documented all issues and solutions in README
+### Recent Changes (Phase 3B - Complete)
+- ✅ Implemented Slack reaction handler without Clawdbot dependency
+- ✅ Fixed jest mock setup in test suite
+- ✅ Added comprehensive unit test coverage (31 tests)
+- ✅ Configured Slack Event Subscriptions
+- ✅ Added missing bot token scopes (users:read, conversations:history)
+- ✅ Verified end-to-end approval workflow
+- ✅ Created CLAUDE.md documentation
+- ✅ Updated README with Phase 3B completion
