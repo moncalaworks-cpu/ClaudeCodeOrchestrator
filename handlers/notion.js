@@ -112,6 +112,11 @@ async function updateDeploymentApproval(deploymentId, approver) {
             name: 'Approved'
           }
         },
+        'Current Stage': {
+          select: {
+            name: 'Deploying'
+          }
+        },
         'PM Agent Approval Time': {
           date: {
             start: new Date().toISOString()
@@ -168,6 +173,11 @@ async function updateDeploymentRejection(deploymentId, rejector) {
         'Human Approval Status': {
           select: {
             name: 'Rejected'
+          }
+        },
+        'Current Stage': {
+          select: {
+            name: 'Failed'
           }
         },
         'PM Agent Approval Time': {
