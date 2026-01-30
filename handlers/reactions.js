@@ -75,12 +75,8 @@ async function approveDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} approved by ${userName}`);
 
-    // Trigger Heroku deployment (optional - requires HEROKU_API_TOKEN)
-    if (process.env.HEROKU_API_TOKEN && process.env.HEROKU_APP_NAME) {
-      await triggerHerokuDeployment(deploymentId, userName);
-    } else {
-      console.log(`[Slack Reactions] Heroku deployment skipped (HEROKU_API_TOKEN or HEROKU_APP_NAME not configured)`);
-    }
+    // Post deployment command to thread
+    await postDeploymentCommand(channel, threadTs, deploymentId);
 
     // TODO: Phase 4 - Update Notion deployment record
     // Example:
@@ -220,66 +216,26 @@ async function replyToThread(channel, threadTs, status) {
 }
 
 /**
- * Trigger Heroku deployment via API
- * @param {string} deploymentId - Deployment ID for logging
- * @param {string} approver - User who approved the deployment
- * @returns {object} Deployment result
+ * Post deployment approval to Slack with Heroku deploy command
+ * @param {string} channel - Slack channel ID
+ * @param {string} threadTs - Thread timestamp
+ * @param {string} deploymentId - Deployment ID
  */
-async function triggerHerokuDeployment(deploymentId, approver) {
+async function postDeploymentCommand(channel, threadTs, deploymentId) {
   try {
-    const herokuToken = process.env.HEROKU_API_TOKEN;
-    const herokuAppName = process.env.HEROKU_APP_NAME;
+    const deployCommand = 'git push heroku main';
+    const message = `🚀 Ready to deploy! Run this command to deploy to Heroku:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nDeployment ID: ${deploymentId}`;
 
-    if (!herokuToken || !herokuAppName) {
-      console.warn('[Slack Reactions] HEROKU_API_TOKEN or HEROKU_APP_NAME not set, skipping deployment');
-      return { success: false, reason: 'Heroku credentials not configured' };
-    }
-
-    console.log(`[Slack Reactions] Triggering Heroku deployment for ${deploymentId} approved by ${approver}`);
-
-    const options = {
-      hostname: 'api.heroku.com',
-      path: `/apps/${herokuAppName}/builds`,
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${herokuToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/vnd.heroku+json;version=3'
-      }
-    };
-
-    return new Promise((resolve, reject) => {
-      const req = https.request(options, (res) => {
-        let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          if (res.statusCode === 201 || res.statusCode === 200) {
-            console.log(`[Slack Reactions] ✅ Heroku deployment triggered for ${deploymentId}`);
-            resolve({ success: true, buildId: JSON.parse(data).id });
-          } else {
-            const errorMsg = `Heroku API returned ${res.statusCode}`;
-            console.error(`[Slack Reactions] ❌ ${errorMsg}: ${data}`);
-            resolve({ success: false, reason: errorMsg });
-          }
-        });
-      });
-
-      req.on('error', (error) => {
-        console.error(`[Slack Reactions] ❌ Error triggering Heroku deployment: ${error.message}`);
-        resolve({ success: false, reason: error.message });
-      });
-
-      // Send build request (empty body triggers rebuild from current git state)
-      req.write(JSON.stringify({ source_blob: { url: 'https://github.com' } }));
-      req.end();
+    await slack.chat.postMessage({
+      channel: channel,
+      thread_ts: threadTs,
+      text: message,
+      mrkdwn: true
     });
+
+    console.log(`[Slack Reactions] Posted deployment command for ${deploymentId}`);
   } catch (error) {
-    console.error(`[Slack Reactions] Error in triggerHerokuDeployment: ${error.message}`);
-    return { success: false, reason: error.message };
+    console.error(`[Slack Reactions] Error posting deployment command: ${error.message}`);
   }
 }
 
@@ -290,5 +246,5 @@ module.exports = {
   validateApprover,
   replyToThread,
   extractDeploymentId,
-  triggerHerokuDeployment
+  postDeploymentCommand
 };
