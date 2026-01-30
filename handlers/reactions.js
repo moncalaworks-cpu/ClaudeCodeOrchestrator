@@ -236,18 +236,52 @@ async function postDeploymentCommand(channel, threadTs, deploymentId) {
       mrkdwn: true
     });
 
-    // Execute git push heroku main
+    // Trigger Heroku deployment via API
     try {
-      const { stdout, stderr } = await execAsync('git push heroku main', { timeout: 120000 });
+      const herokuToken = process.env.HEROKU_API_TOKEN;
+      const herokuAppName = process.env.HEROKU_APP_NAME;
 
-      console.log(`[Slack Reactions] ✅ Deployment succeeded for ${deploymentId}`);
-      console.log(`[Slack Reactions] Heroku output: ${stdout.substring(0, 500)}`);
+      if (!herokuToken || !herokuAppName) {
+        throw new Error('HEROKU_API_TOKEN or HEROKU_APP_NAME not configured');
+      }
+
+      // Call Heroku API to create a release (which triggers a rebuild/deployment)
+      const options = {
+        hostname: 'api.heroku.com',
+        path: `/apps/${herokuAppName}/releases`,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${herokuToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/vnd.heroku+json;version=3'
+        }
+      };
+
+      const deployResult = await new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(JSON.parse(data));
+            } else {
+              reject(new Error(`Heroku API ${res.statusCode}: ${data}`));
+            }
+          });
+        });
+
+        req.on('error', reject);
+        req.write(JSON.stringify({ description: `Approved by Slack reaction - ${deploymentId}` }));
+        req.end();
+      });
+
+      console.log(`[Slack Reactions] ✅ Heroku deployment triggered for ${deploymentId}`);
 
       // Update with success message
       await slack.chat.postMessage({
         channel: channel,
         thread_ts: threadTs,
-        text: `✅ Deployment to Heroku completed successfully!\n\nDeployment ID: ${deploymentId}`,
+        text: `✅ Deployment to Heroku initiated!\n\nDeployment ID: ${deploymentId}\nRelease: ${deployResult.id}`,
         mrkdwn: true
       });
 
@@ -256,7 +290,7 @@ async function postDeploymentCommand(channel, threadTs, deploymentId) {
 
       // Post fallback command on failure
       const deployCommand = 'git push heroku main';
-      const message = `❌ Automatic deployment failed. Run this command manually:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nError: ${deployError.message}\nDeployment ID: ${deploymentId}`;
+      const message = `❌ Automatic deployment failed. Run this command from your terminal:\n\`\`\`\n${deployCommand}\n\`\`\`\n\nError: ${deployError.message}\nDeployment ID: ${deploymentId}`;
 
       await slack.chat.postMessage({
         channel: channel,
