@@ -62,22 +62,38 @@ jobs:
           echo "Database properties:"
           echo "$SCHEMA" | jq '.properties | to_entries[] | {name: .key, id: .value.id, type: .value.type}'
 
-          # Extract the property ID for "Deployment ID"
+          # Extract the property ID and type for "Deployment ID"
           DEPLOYMENT_ID_PROP=$(echo "$SCHEMA" | jq -r '.properties | to_entries[] | select(.key == "Deployment ID") | .value.id')
+          DEPLOYMENT_ID_TYPE=$(echo "$SCHEMA" | jq -r '.properties | to_entries[] | select(.key == "Deployment ID") | .value.type')
           echo "Deployment ID property ID: $DEPLOYMENT_ID_PROP"
+          echo "Deployment ID property type: $DEPLOYMENT_ID_TYPE"
 
-          # Create JSON filter payload using property ID
-          FILTER_JSON=$(cat <<EOF
+          # Create JSON filter payload using property ID and correct filter type
+          if [ "$DEPLOYMENT_ID_TYPE" = "title" ]; then
+            FILTER_JSON=$(cat <<EOF
           {
             "filter": {
               "property": "$DEPLOYMENT_ID_PROP",
-              "text": {
+              "title": {
                 "contains": "$DEPLOYMENT_ID"
               }
             }
           }
           EOF
-          )
+            )
+          else
+            FILTER_JSON=$(cat <<EOF
+          {
+            "filter": {
+              "property": "$DEPLOYMENT_ID_PROP",
+              "rich_text": {
+                "contains": "$DEPLOYMENT_ID"
+              }
+            }
+          }
+          EOF
+            )
+          fi
 
           echo "Query filter: $FILTER_JSON"
 
