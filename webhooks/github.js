@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const slackHandler = require('../handlers/slack');
+const notionHandler = require('../handlers/notion');
 
 // Verify GitHub webhook signature
 function verifyGitHubSignature(req, secret) {
@@ -92,17 +93,25 @@ router.post('/github', async (req, res) => {
       branch: branch
     });
 
-    // Send Slack notification asynchronously (don't block webhook response)
-    slackHandler.sendDeploymentNotification(deployment_data).then(slackResult => {
+    // Send Slack notification and create Notion record asynchronously
+    Promise.all([
+      slackHandler.sendDeploymentNotification(deployment_data),
+      notionHandler.createDeploymentRecord(deployment_data)
+    ]).then(([slackResult, notionResult]) => {
       if (slackResult.success) {
         console.log(`[GitHub] Slack notification sent, thread: ${slackResult.thread_ts}`);
         deployment_data.slack_thread_id = slackResult.thread_ts;
       } else {
         console.error(`[GitHub] Slack notification failed: ${slackResult.error}`);
       }
-      console.log(`[GitHub] Would trigger orchestrator with:`, deployment_data);
+      if (notionResult) {
+        console.log(`[GitHub] Notion record created: ${notionResult}`);
+      } else {
+        console.warn(`[GitHub] Notion record creation failed or not configured`);
+      }
+      console.log(`[GitHub] Deployment initiated:`, deployment_data);
     }).catch(error => {
-      console.error(`[GitHub] Error in async Slack handler: ${error.message}`);
+      console.error(`[GitHub] Error in async handlers: ${error.message}`);
     });
 
   } catch (error) {

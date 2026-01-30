@@ -107,25 +107,25 @@ async function updateDeploymentApproval(deploymentId, approver) {
 
     const update = {
       properties: {
-        'Status': {
-          status: {
+        'Human Approval Status': {
+          select: {
             name: 'Approved'
           }
         },
-        'Approved By': {
+        'PM Agent Approval Time': {
+          date: {
+            start: new Date().toISOString()
+          }
+        },
+        'Slack Reaction Timestamp': {
           rich_text: [
             {
               type: 'text',
               text: {
-                content: approver
+                content: `Approved by ${approver} at ${new Date().toISOString()}`
               }
             }
           ]
-        },
-        'Approval Time': {
-          date: {
-            start: new Date().toISOString()
-          }
         }
       }
     };
@@ -165,25 +165,25 @@ async function updateDeploymentRejection(deploymentId, rejector) {
 
     const update = {
       properties: {
-        'Status': {
-          status: {
+        'Human Approval Status': {
+          select: {
             name: 'Rejected'
           }
         },
-        'Rejected By': {
+        'PM Agent Approval Time': {
+          date: {
+            start: new Date().toISOString()
+          }
+        },
+        'Slack Reaction Timestamp': {
           rich_text: [
             {
               type: 'text',
               text: {
-                content: rejector
+                content: `Rejected by ${rejector} at ${new Date().toISOString()}`
               }
             }
           ]
-        },
-        'Rejection Time': {
-          date: {
-            start: new Date().toISOString()
-          }
         }
       }
     };
@@ -245,7 +245,111 @@ async function updateDeploymentDeployed(deploymentId) {
   }
 }
 
+/**
+ * Create a new deployment record in Notion
+ * @param {object} deploymentData - Deployment data from GitHub webhook
+ * @returns {Promise<string|null>} Page ID if created, null otherwise
+ */
+async function createDeploymentRecord(deploymentData) {
+  try {
+    if (!notionToken || !databaseId) {
+      console.warn('[Notion] NOTION_API_TOKEN or NOTION_DATABASE_ID not configured');
+      return null;
+    }
+
+    console.log(`[Notion] Creating deployment record for ${deploymentData.deployment_id}`);
+
+    const options = getNotionOptions(`/v1/pages`, 'POST');
+
+    const page = {
+      parent: {
+        database_id: databaseId
+      },
+      properties: {
+        'Deployment ID': {
+          title: [
+            {
+              type: 'text',
+              text: {
+                content: deploymentData.deployment_id
+              }
+            }
+          ]
+        },
+        'Branch': {
+          select: {
+            name: deploymentData.branch.split('/')[0] === 'feature' ? 'features/*' : deploymentData.branch
+          }
+        },
+        'Commit SHA': {
+          rich_text: [
+            {
+              type: 'text',
+              text: {
+                content: deploymentData.commit_sha
+              }
+            }
+          ]
+        },
+        'Commit Message': {
+          select: {
+            name: deploymentData.commit_message.substring(0, 50)
+          }
+        },
+        'Author': {
+          select: {
+            name: deploymentData.commit_author
+          }
+        },
+        'Human Approval Status': {
+          select: {
+            name: 'Pending'
+          }
+        },
+        'Slack Thread ID': {
+          rich_text: [
+            {
+              type: 'text',
+              text: {
+                content: deploymentData.slack_thread_id || ''
+              }
+            }
+          ]
+        },
+        'Current Stage': {
+          select: {
+            name: 'Awaiting Approval'
+          }
+        },
+        'Created By': {
+          select: {
+            name: 'Orchestrator'
+          }
+        },
+        'Created At': {
+          date: {
+            start: deploymentData.triggered_at
+          }
+        }
+      }
+    };
+
+    const response = await makeNotionRequest(options, JSON.stringify(page));
+
+    if (response.id) {
+      console.log(`[Notion] ✅ Created deployment record: ${response.id}`);
+      return response.id;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`[Notion] ❌ Error creating deployment record: ${error.message}`);
+    return null;
+  }
+}
+
 module.exports = {
+  createDeploymentRecord,
   updateDeploymentApproval,
   updateDeploymentRejection,
   updateDeploymentDeployed,
