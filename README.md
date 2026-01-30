@@ -356,6 +356,10 @@ SLACK_QA_CHANNEL_ID=C0ABFT1BRS8
 SLACK_PROD_CHANNEL_ID=C0AB5TMB0M9
 SLACK_INCIDENTS_CHANNEL_ID=C0ABA82PMN2
 
+# Heroku (for auto-deployment on approval)
+HEROKU_API_TOKEN=YOUR_HEROKU_API_TOKEN_HERE
+HEROKU_APP_NAME=claude-code-orchestrator-YOUR_ID_HERE
+
 # Notion (for Phase 4+)
 NOTION_API_TOKEN=PLACEHOLDER
 NOTION_DATABASE_ID=PLACEHOLDER
@@ -436,6 +440,42 @@ If no message appears:
 3. Verify `SLACK_BOT_TOKEN` and channel IDs in `.env`
 4. Ensure bot is member of target channels
 5. Check GitHub Recent Deliveries for webhook status
+
+### 7. Setup Auto-Deployment on Approval (Phase 3B+)
+
+After approving a deployment via Slack reaction (✅), the system can automatically trigger Heroku deployment:
+
+**Step 1: Get Heroku API Token**
+
+```bash
+heroku authorizations:create --description "Claude Code Orchestrator"
+```
+
+Copy the `Token` value.
+
+**Step 2: Set Heroku Credentials on Heroku**
+
+```bash
+heroku config:set HEROKU_API_TOKEN=YOUR_TOKEN_HERE --app claude-code-orchestrator
+heroku config:set HEROKU_APP_NAME=claude-code-orchestrator-YOUR_ID_HERE --app claude-code-orchestrator
+```
+
+**Step 3: Restart the App**
+
+```bash
+heroku restart --app claude-code-orchestrator
+```
+
+**Step 4: Test the Workflow**
+
+1. Push a commit to trigger a deployment notification
+2. React with ✅ in Slack to approve
+3. Check Heroku logs:
+   ```bash
+   heroku logs --app claude-code-orchestrator --tail
+   ```
+4. You should see: `[Slack Reactions] ✅ Heroku deployment triggered for deploy-main-...`
+5. Monitor deployment at: https://dashboard.heroku.com/apps/claude-code-orchestrator/activity
 
 ---
 

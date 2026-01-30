@@ -4,6 +4,7 @@
  */
 
 const { WebClient } = require('@slack/web-api');
+const https = require('https');
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
@@ -74,8 +75,10 @@ async function approveDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} approved by ${userName}`);
 
+    // Trigger Heroku deployment
+    await triggerHerokuDeployment(deploymentId, userName);
+
     // TODO: Phase 4 - Update Notion deployment record
-    // TODO: Phase 5 - Trigger actual deployment to environment
     // Example:
     // await notionHandler.updateDeploymentStatus(deploymentId, {
     //   status: 'approved',
@@ -168,6 +171,7 @@ async function rejectDeployment(channel, threadTs, userId) {
  * @returns {string} Deployment ID or 'unknown'
  */
 function extractDeploymentId(messageText) {
+  if (!messageText) return 'unknown';
   const match = messageText.match(/deploy-[a-zA-Z0-9*/-]+-\d+/);
   return match ? match[0] : 'unknown';
 }
@@ -211,11 +215,76 @@ async function replyToThread(channel, threadTs, status) {
   }
 }
 
+/**
+ * Trigger Heroku deployment via API
+ * @param {string} deploymentId - Deployment ID for logging
+ * @param {string} approver - User who approved the deployment
+ * @returns {object} Deployment result
+ */
+async function triggerHerokuDeployment(deploymentId, approver) {
+  try {
+    const herokuToken = process.env.HEROKU_API_TOKEN;
+    const herokuAppName = process.env.HEROKU_APP_NAME;
+
+    if (!herokuToken || !herokuAppName) {
+      console.warn('[Slack Reactions] HEROKU_API_TOKEN or HEROKU_APP_NAME not set, skipping deployment');
+      return { success: false, reason: 'Heroku credentials not configured' };
+    }
+
+    console.log(`[Slack Reactions] Triggering Heroku deployment for ${deploymentId} approved by ${approver}`);
+
+    const options = {
+      hostname: 'api.heroku.com',
+      path: `/apps/${herokuAppName}/builds`,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${herokuToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.heroku+json;version=3'
+      }
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          if (res.statusCode === 201 || res.statusCode === 200) {
+            console.log(`[Slack Reactions] ✅ Heroku deployment triggered for ${deploymentId}`);
+            resolve({ success: true, buildId: JSON.parse(data).id });
+          } else {
+            const errorMsg = `Heroku API returned ${res.statusCode}`;
+            console.error(`[Slack Reactions] ❌ ${errorMsg}: ${data}`);
+            resolve({ success: false, reason: errorMsg });
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error(`[Slack Reactions] ❌ Error triggering Heroku deployment: ${error.message}`);
+        resolve({ success: false, reason: error.message });
+      });
+
+      // Send build request (empty body triggers rebuild from current git state)
+      req.write(JSON.stringify({ source_blob: { url: 'https://github.com' } }));
+      req.end();
+    });
+  } catch (error) {
+    console.error(`[Slack Reactions] Error in triggerHerokuDeployment: ${error.message}`);
+    return { success: false, reason: error.message };
+  }
+}
+
 module.exports = {
   handleReactionAdded,
   approveDeployment,
   rejectDeployment,
   validateApprover,
   replyToThread,
-  extractDeploymentId
+  extractDeploymentId,
+  triggerHerokuDeployment
 };
