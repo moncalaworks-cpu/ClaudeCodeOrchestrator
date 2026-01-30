@@ -58,12 +58,13 @@ Triggered: ${deploymentData.triggered_at}`;
       mrkdwn: true
     });
 
-    console.log(`[Slack] ✅ Notification sent to channel ${channel}, thread_ts: ${result.ts}`);
+    console.log(`[Slack] Notification sent to channel ${channel}, thread_ts: ${result.ts}`);
 
     return {
       success: true,
       thread_ts: result.ts,
-      channel: channel
+      channel: channel,
+      message_ts: result.ts
     };
   } catch (error) {
     console.error(`[Slack] ❌ Failed to send notification: ${error.message}`);
