@@ -35,36 +35,50 @@ jobs:
         run: |
           # Find the deployment record and update status to Deployed
           echo "📝 Updating Notion: $DEPLOYMENT_ID -> Deployed"
+          echo "Database ID: $NOTION_DATABASE_ID"
 
           # Query Notion database for the deployment record
-          QUERY_RESPONSE=$(curl -s -X POST https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query \
+          QUERY_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query \
             -H "Authorization: Bearer $NOTION_API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json" \
             -d '{
               "filter": {
                 "property": "Deployment ID",
-                "rich_text": {
+                "text": {
                   "contains": "'$DEPLOYMENT_ID'"
                 }
               }
             }')
 
-          echo "Query response: $QUERY_RESPONSE"
+          echo "Full query response:"
+          echo "$QUERY_RESPONSE"
 
-          # Extract the page ID from the first result
-          PAGE_ID=$(echo $QUERY_RESPONSE | jq -r '.results[0].id' 2>/dev/null)
+          # Extract HTTP status
+          HTTP_STATUS=$(echo "$QUERY_RESPONSE" | tail -n1 | cut -d':' -f2)
+          RESPONSE_BODY=$(echo "$QUERY_RESPONSE" | head -n-1)
 
-          if [ -z "$PAGE_ID" ] || [ "$PAGE_ID" = "null" ]; then
-            echo "⚠️ Deployment record not found in Notion"
-            echo "Response was: $QUERY_RESPONSE"
+          echo "HTTP Status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Notion API error (HTTP $HTTP_STATUS)"
             exit 0
           fi
 
-          echo "Found page ID: $PAGE_ID"
+          # Extract the page ID from the first result
+          PAGE_ID=$(echo "$RESPONSE_BODY" | jq -r '.results[0].id' 2>/dev/null)
+
+          if [ -z "$PAGE_ID" ] || [ "$PAGE_ID" = "null" ]; then
+            echo "⚠️ Deployment record not found in Notion"
+            echo "Checking results count:"
+            echo "$RESPONSE_BODY" | jq '.results | length'
+            exit 0
+          fi
+
+          echo "✅ Found page ID: $PAGE_ID"
 
           # Update the page with Deployed status
-          UPDATE_RESPONSE=$(curl -s -X PATCH https://api.notion.com/v1/pages/$PAGE_ID \
+          UPDATE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH https://api.notion.com/v1/pages/$PAGE_ID \
             -H "Authorization: Bearer $NOTION_API_TOKEN" \
             -H "Notion-Version: 2022-06-28" \
             -H "Content-Type: application/json" \
@@ -83,5 +97,6 @@ jobs:
               }
             }')
 
-          echo "Update response: $UPDATE_RESPONSE"
-          echo "✅ Notion updated: Deployment marked as Deployed"
+          echo "Update response:"
+          echo "$UPDATE_RESPONSE"
+          echo "✅ Notion update complete"
