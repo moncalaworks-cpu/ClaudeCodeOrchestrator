@@ -15,27 +15,32 @@ The Claude Code Orchestrator is a comprehensive deployment automation system tha
 - **PM Agent** - Reviews deployments, approves, sends Slack notifications, syncs GitHub/Notion
 - **OPS Agent** - Deploys to Heroku, auto-rollsback PROD failures
 
-### Deployment Flow
+### Deployment Flow (Phase 3B - Fully Implemented)
 
 ```
 Git Push (feature/*, develop, main)
     ↓
-GitHub Webhook → Orchestrator
+GitHub Webhook → Orchestrator Server
     ↓
-PM Agent creates Slack thread & Notion record
+Extract commit data, generate deployment ID
     ↓
-DEV Agent builds Docker image
+Post Slack notification to environment-specific channel
+(DEV/QA/PROD with clickable GitHub commit link)
     ↓
-QAE Agent runs parallel tests
+User reviews in Slack → Reacts with ✅ or ❌
     ↓
-IF tests pass → PM Agent approves
+Orchestrator receives reaction event
     ↓
-IF QA: Auto-deploy
-IF PROD: Wait for human approval via Slack reaction
+Post approval/rejection message to thread
     ↓
-OPS Agent deploys to Heroku
+IF ✅ approved: Trigger GitHub Actions workflow
+    ├─ GitHub Actions runs: git push heroku main
+    ├─ Heroku detects push and deploys
+    └─ Post GitHub Actions link in Slack
     ↓
-Deployment complete, status updated
+IF ❌ rejected: Post rejection message
+    ↓
+Deployment complete (success or rejected)
 ```
 
 ---
@@ -83,7 +88,7 @@ Deployment complete, status updated
 - Error resilience: GitHub webhook continues even if Slack fails; errors logged and posted to INCIDENTS channel
 - @slack/web-api SDK integrated
 
-### Phase 3B: Slack Reactions & Approvals ✅
+### Phase 3B: Slack Reactions & GitHub Actions Deployment ✅
 - Event Subscriptions configured in Slack API
 - Slack reactions handler (`handlers/reactions.js`) listening for approval/rejection emoji:
   - ✅ and +1 reactions → Approve deployment
@@ -92,7 +97,12 @@ Deployment complete, status updated
 - Approval workflow extracts deployment ID from message text
 - Thread replies show approval/rejection status with user name
 - Bot token scopes configured: `chat:write`, `users:read`, `conversations:history`
-- End-to-end approval workflow tested and working
+- GitHub Actions workflow (`.github/workflows/deploy.yml`) triggered on approval:
+  - Listens for `repository_dispatch` event type `deployment-approved`
+  - Executes `git push heroku main` to deploy
+  - Uses `HEROKU_API_KEY` from GitHub Secrets for authentication
+- Clean UX: Success message with GitHub Actions link, fallback manual command on failure
+- End-to-end approval workflow tested and working with automatic deployment
 
 ### Local Orchestrator
 - Express.js server listening on port 3001
@@ -766,40 +776,76 @@ For questions or issues:
 ### Phase 3B Completion Summary (2026-01-30)
 
 **Implementation Status:** ✅ COMPLETE
-- Full end-to-end Slack approval workflow working
+- Full end-to-end Slack approval to Heroku deployment workflow working
 - Event Subscriptions configured in Slack API
-- Approval/rejection reactions (✅/❌) triggering handler
-- Thread replies showing approval status with user names
+- Approval/rejection reactions (✅/❌) triggering deployment
+- GitHub Actions workflow automatically deploys on approval
+- Slack messages include clickable GitHub commit and Actions links
 - All 31 unit tests passing
 
+**Complete Deployment Workflow:**
+1. Developer pushes code → GitHub webhook triggers
+2. Orchestrator posts notification to Slack with commit link
+3. User reviews and reacts with ✅ to approve
+4. Orchestrator posts approval message and calls GitHub API
+5. GitHub Actions workflow triggers via repository_dispatch
+6. GitHub Action runs `git push heroku main`
+7. Heroku detects push and auto-deploys
+8. Slack displays GitHub Actions link for progress monitoring
+9. On failure: fallback message with manual deployment command
+
 **Verification:**
-- GitHub push → Slack notification to #prod ✅
+- GitHub push → Slack notification with commit URL ✅
 - User reacts with ✅ → Approval message posted to thread ✅
-- Deployment ID extracted from message ✅
-- User info fetched for audit trail ✅
-- Handler properly mocked in tests (fixed from 17 failures) ✅
+- GitHub API repository_dispatch triggered ✅
+- GitHub Actions workflow runs automatically ✅
+- Heroku receives push and deploys ✅
+- Success message with Actions link displayed ✅
 
 **Implementation Details:**
-- `handlers/reactions.js` - Slack reaction event handler with approval/rejection logic
-- `handlers/__tests__/reactions.test.js` - 31 comprehensive tests (6 extraction, 7 reaction handling, 8 approval, 5 rejection, 3 thread reply, 2 integration)
-- `server.js` - `/slack/events` endpoint with URL verification and event routing
-- Scopes configured: `chat:write`, `users:read`, `conversations:history`
-- Created CLAUDE.md for future Claude instances
+- `handlers/reactions.js` - Slack reaction handler + GitHub API trigger
+- `handlers/__tests__/reactions.test.js` - 31 comprehensive tests
+- `handlers/slack.js` - Slack notification with commit URL formatting
+- `.github/workflows/deploy.yml` - GitHub Actions workflow for Heroku deployment
+- `server.js` - GitHub webhook + Slack events endpoints
+- `CLAUDE.md` - Comprehensive guidance for future Claude instances
 
 **Key Features Implemented:**
+- GitHub commit hash as clickable link to GitHub commit page
 - Emoji reaction detection (✅, ❌, +1, -1)
 - Deployment ID extraction via regex pattern matching
 - User info lookup for approval attribution
-- Thread status updates with markdown support
+- GitHub API repository_dispatch for workflow triggering
+- GitHub Actions workflow with Heroku API key authentication
+- Direct links to GitHub Actions workflow runs
+- Graceful fallback to manual command on API failure
 - Comprehensive error handling and logging
-- Mock-based unit testing with Jest
+- Full test coverage with Jest mocking
+
+**Lessons Learned:**
+1. **Heroku Dyno Environment** - Git is not installed on Heroku dynos; can't run git commands directly. Solution: Use GitHub Actions (external CI/CD) for git operations.
+
+2. **Heroku API Complexity** - Creating releases via Heroku API requires slug IDs which are difficult to obtain. Better to use GitHub as the deployment source.
+
+3. **GitHub Actions for CI/CD** - Using `repository_dispatch` is the cleanest way to trigger external workflow actions. Works perfectly for approval-based deployments.
+
+4. **Jest Mocking Timing** - Mock setup must happen BEFORE module requiring (via jest.mock factory function), not in beforeEach hook. The handler creates WebClient at module load time.
+
+5. **Slack Scope Management** - Different actions require different scopes: `chat:write` for messaging, `users:read` for user info, `conversations:history` for reading messages. Set all needed scopes upfront to avoid `missing_scope` errors.
+
+6. **UX Design** - Fallback approaches are essential. Show manual commands only on failure, not on success. Keep success messages clean and actionable with direct links.
+
+7. **Deployment Verification** - Test full end-to-end workflows on production (Heroku), not just local development. Local testing with tunnels masks environment-specific issues.
 
 ### Recent Changes (Phase 3B - Complete)
-- ✅ Implemented Slack reaction handler without Clawdbot dependency
-- ✅ Fixed jest mock setup in test suite
-- ✅ Added comprehensive unit test coverage (31 tests)
-- ✅ Configured Slack Event Subscriptions
-- ✅ Added missing bot token scopes (users:read, conversations:history)
-- ✅ Verified end-to-end approval workflow
-- ✅ Created CLAUDE.md documentation
-- ✅ Updated README with Phase 3B completion
+- ✅ Implemented Slack reaction handler with full test coverage
+- ✅ Fixed jest mock setup (17 failing → 31 passing tests)
+- ✅ Added GitHub commit URL as clickable link in Slack
+- ✅ Configured Slack Event Subscriptions with proper scopes
+- ✅ Created GitHub Actions deployment workflow (.github/workflows/deploy.yml)
+- ✅ Integrated GitHub API repository_dispatch for workflow triggering
+- ✅ Added fallback manual deployment command on API failure
+- ✅ Included GitHub Actions URL in success messages
+- ✅ Created CLAUDE.md documentation for future instances
+- ✅ Updated README with complete Phase 3B implementation
+- ✅ Verified end-to-end approval to Heroku deployment workflow
