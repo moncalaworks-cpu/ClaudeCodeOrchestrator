@@ -7,6 +7,7 @@ const { WebClient } = require('@slack/web-api');
 const https = require('https');
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const notionHandler = require('./notion');
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 const execAsync = promisify(exec);
@@ -78,6 +79,9 @@ async function approveDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} approved by ${userName}`);
 
+    // Update Notion database with approval
+    await notionHandler.updateDeploymentApproval(deploymentId, userName);
+
     // Trigger GitHub Actions deployment
     await triggerGitHubDeployment(channel, threadTs, deploymentId, userName);
 
@@ -141,14 +145,10 @@ async function rejectDeployment(channel, threadTs, userId) {
 
     console.log(`[Slack Reactions] Deployment ${deploymentId} rejected by ${userName}`);
 
-    // TODO: Phase 4 - Update Notion deployment record
+    // Update Notion database with rejection
+    await notionHandler.updateDeploymentRejection(deploymentId, userName);
+
     // TODO: Phase 5 - Cancel/rollback deployment
-    // Example:
-    // await notionHandler.updateDeploymentStatus(deploymentId, {
-    //   status: 'rejected',
-    //   rejectedBy: userName,
-    //   rejectionTime: new Date().toISOString()
-    // });
 
   } catch (error) {
     console.error(`[Slack Reactions] Error rejecting deployment: ${error.message}`);
