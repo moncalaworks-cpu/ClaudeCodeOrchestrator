@@ -26,3 +26,56 @@ jobs:
           git remote add heroku https://git.heroku.com/claude-code-orchestrator.git
           git push https://oauth2:${HEROKU_API_KEY}@git.heroku.com/claude-code-orchestrator.git HEAD:main
           echo "✅ Deployment to Heroku completed!"
+
+      - name: Update Notion - Mark as Deployed
+        env:
+          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+          DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
+        run: |
+          # Find the deployment record and update status to Deployed
+          echo "📝 Updating Notion: $DEPLOYMENT_ID -> Deployed"
+
+          # Query Notion database for the deployment record
+          QUERY_RESPONSE=$(curl -s -X POST https://api.notion.com/v1/databases/$NOTION_DATABASE_ID/query \
+            -H "Authorization: Bearer $NOTION_API_TOKEN" \
+            -H "Notion-Version: 2022-06-28" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "filter": {
+                "property": "Deployment ID",
+                "title": {
+                  "equals": "'$DEPLOYMENT_ID'"
+                }
+              }
+            }')
+
+          # Extract the page ID from the response
+          PAGE_ID=$(echo $QUERY_RESPONSE | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+          if [ -z "$PAGE_ID" ]; then
+            echo "⚠️ Deployment record not found in Notion"
+            exit 0
+          fi
+
+          # Update the page with Deployed status
+          curl -s -X PATCH https://api.notion.com/v1/pages/$PAGE_ID \
+            -H "Authorization: Bearer $NOTION_API_TOKEN" \
+            -H "Notion-Version: 2022-06-28" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "properties": {
+                "Current Stage": {
+                  "select": {
+                    "name": "Deployed"
+                  }
+                },
+                "Deployment Status": {
+                  "select": {
+                    "name": "Success"
+                  }
+                }
+              }
+            }'
+
+          echo "✅ Notion updated: Deployment marked as Deployed"
