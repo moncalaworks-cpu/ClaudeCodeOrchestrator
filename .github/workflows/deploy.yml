@@ -39,6 +39,10 @@ jobs:
           echo "Installing jq..."
           sudo apt-get update && sudo apt-get install -y jq
 
+          # Trim whitespace from secrets
+          NOTION_DATABASE_ID=$(echo "$NOTION_DATABASE_ID" | xargs)
+          NOTION_API_TOKEN=$(echo "$NOTION_API_TOKEN" | xargs)
+
           # Find the deployment record and update status to Deployed
           echo "📝 Updating Notion: $DEPLOYMENT_ID -> Deployed"
           echo "Database ID length: ${#NOTION_DATABASE_ID}"
