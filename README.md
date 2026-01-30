@@ -47,8 +47,8 @@ Deployment complete (success or rejected)
 
 ## Current Status
 
-**Phases Completed:** 0, 1, 2, 3, 3B ✅
-**Current Phase:** 4 (Zapier Integration) - Next
+**Phases Completed:** 0, 1, 2, 3, 3B, 4 ✅
+**Current Phase:** 5 (Infrastructure & Deployment) - Next
 
 | Phase | Title | Status |
 |-------|-------|--------|
@@ -57,7 +57,7 @@ Deployment complete (success or rejected)
 | 2 | GitHub Configuration | ✅ Complete |
 | 3 | Slack Integration | ✅ Complete |
 | 3B | Slack Reactions & Approvals | ✅ Complete |
-| 4 | Zapier Integration | ⏳ Pending |
+| 4 | Notion API Integration | ✅ Complete |
 | 5-13 | Infrastructure & Deployment | ⏳ Pending |
 
 ---
@@ -103,6 +103,15 @@ Deployment complete (success or rejected)
   - Uses `HEROKU_API_KEY` from GitHub Secrets for authentication
 - Clean UX: Success message with GitHub Actions link, fallback manual command on failure
 - End-to-end approval workflow tested and working with automatic deployment
+
+### Phase 4: Notion API Integration ✅
+- Direct Notion API integration via GitHub Actions workflow
+- Deployment records automatically updated in Notion database
+- Status updates: Deployment ID lookup, stage and status updates
+- Notion API Token configured in GitHub Secrets
+- Notion Database ID configured for querying and updating records
+- Supports multiple deployment stages: Pending, In Progress, Deployed, Failed
+- Real-time deployment tracking in central Notion ledger
 
 ### Local Orchestrator
 - Express.js server listening on port 3001
@@ -292,7 +301,7 @@ Deployment complete (success or rejected)
 ┌─ Notion (Phase 4) ──────────────────────┐
 │  • Central state ledger                  │
 │  • Tracks all deployments                │
-│  • Updated via Zapier                    │
+│  • Updated via Notion API                │
 └──────────────────────────────────────────┘
                     ↓
 ┌─ Heroku (Phase 5+) ─────────────────────┐
@@ -313,7 +322,6 @@ Deployment complete (success or rejected)
 - Docker Hub account
 - Heroku account
 - Anthropic (Claude API) account
-- Zapier account
 
 ### Required Tools
 - **Node.js** ≥ 18 (tested with 22+)
@@ -530,13 +538,10 @@ ClaudeCodeOrchestrator/
 - Thread replies showing approval status with user names
 - Comprehensive test suite (31 tests, all passing)
 
-### ⏳ Pending (Phases 4-13)
-- Zapier webhook processor for Notion updates
-- Notion state machine integration
+### ⏳ Pending (Phases 5-13)
 - Docker Hub image registry
 - Heroku multi-environment deployment
 - Claude API agent orchestration
-- Auto-deployment trigger on approval
 - End-to-end testing
 - Production deployment
 
@@ -582,11 +587,10 @@ The orchestrator logs important events:
    - ✅ Thread replies with status updates working
    - ✅ End-to-end testing verified
 
-2. **Phase 4: Zapier Integration** (Current)
-   - Create Zapier webhook for reaction events
-   - Map approval/rejection to Notion database
-   - Update deployment status in Notion
-   - Test end-to-end workflow
+2. **Phase 4: Notion API Integration** ✅ Complete
+   - Direct Notion API integration via GitHub Actions
+   - Real-time deployment status updates
+   - Centralized deployment tracking
 
 3. **Phases 5-13: Infrastructure & Agents**
    - Heroku app setup (DEV, QA, PROD environments)
@@ -734,8 +738,7 @@ For detailed troubleshooting, see Phase 3 implementation guide above.
 - **Jest** - Unit testing framework
 - **GitHub API** - Version control integration
 - **Slack API** - Team notifications and event subscriptions
-- **Notion API** - State management (Phase 4+)
-- **Zapier** - Webhook processor (Phase 4+)
+- **Notion API** - Central state management and deployment tracking
 - **Heroku** - Container deployment (Phase 5+)
 - **Docker** - Image building (Phase 5+)
 - **Claude API** - AI agents (Phase 5+)
@@ -768,7 +771,7 @@ For questions or issues:
 
 ## Status
 
-**Project Status:** Phase 4 (Zapier Integration) - Pending
+**Project Status:** Phase 5 (Infrastructure & Deployment) - Pending
 **Last Updated:** 2026-01-30
 **Author:** Ken Shinzato
 **Repository:** https://github.com/moncalaworks-cpu/ClaudeCodeOrchestrator

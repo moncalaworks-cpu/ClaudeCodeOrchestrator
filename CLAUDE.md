@@ -27,9 +27,10 @@ External Event (GitHub push) → Webhook Handler → Return 200 OK immediately �
 ### Core Data Flow
 
 1. **GitHub webhook** (`/webhooks/github`) → Validates signature, extracts deployment data
-2. **Routes to handlers** → Slack notification handler (async), future: Notion, agents
+2. **Routes to handlers** → Slack notification handler (async)
 3. **Slack notification** (`handlers/slack.js`) → Posts to environment-specific channels
 4. **Slack reactions** (`/slack/events`) → Triggers approval/rejection workflow (`handlers/reactions.js`)
+5. **GitHub Actions workflow** → Triggers Notion API updates on deployment completion
 
 ### Component Responsibilities
 
@@ -211,7 +212,7 @@ npm test:watch
 
 ## Phase Status
 
-**Current**: Phase 3B (Slack reaction handler) - Implemented and tested
+**Current**: Phase 5 (Infrastructure & Deployment) - Next
 
 **Completed Phases**:
 - Phase 0: Prerequisites & Accounts
@@ -219,7 +220,7 @@ npm test:watch
 - Phase 2: GitHub Webhooks
 - Phase 3: Slack Integration
 - Phase 3B: Slack Reaction Handler (approval workflow)
+- Phase 4: Notion API Integration (direct API updates via GitHub Actions)
 
 **Upcoming**:
-- Phase 4: Zapier Integration (Notion updates)
 - Phase 5+: Docker, Heroku deployment automation, Claude API agents
