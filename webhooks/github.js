@@ -111,35 +111,15 @@ router.post('/github', async (req, res) => {
         console.warn(`[GitHub] Notion record creation failed or not configured`);
       }
 
-      // Trigger DEV agent analysis (if enabled)
-      if (process.env.ENABLE_DEV_AGENT === 'true' && slackResult.success) {
-        const devAgent = require('../handlers/agents/dev');
-        devAgent.analyzeDeployment(
-          deployment_data,
+      // Post Claude Code analysis command to Slack thread
+      if (slackResult.success) {
+        const analysisCommand = `npm run analyze-deployment ${deployment_data.deployment_id}`;
+        slackHandler.postThreadUpdate(
           slackResult.channel,
-          slackResult.thread_ts
-        ).then(devResult => {
-          if (devResult.success) {
-            console.log(`[GitHub] DEV agent analysis complete for ${deployment_data.deployment_id}`);
-
-            // Trigger PM agent review (if enabled)
-            if (process.env.ENABLE_PM_AGENT === 'true') {
-              const pmAgent = require('../handlers/agents/pm');
-              pmAgent.reviewDeployment(
-                deployment_data.deployment_id,
-                slackResult.channel,
-                slackResult.thread_ts
-              ).then(pmResult => {
-                console.log(`[GitHub] PM agent review complete for ${deployment_data.deployment_id}`);
-              }).catch(pmErr => {
-                console.error(`[GitHub] PM agent error: ${pmErr.message}`);
-              });
-            }
-          } else {
-            console.warn(`[GitHub] DEV agent analysis failed for ${deployment_data.deployment_id}`);
-          }
-        }).catch(devErr => {
-          console.error(`[GitHub] DEV agent error: ${devErr.message}`);
+          slackResult.thread_ts,
+          `💡 To analyze this deployment with Claude Code, run:\n\`\`\`\n${analysisCommand}\n\`\`\``
+        ).catch(err => {
+          console.error(`[GitHub] Failed to post analysis command to Slack: ${err.message}`);
         });
       }
 

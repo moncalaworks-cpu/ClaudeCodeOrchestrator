@@ -8,10 +8,10 @@
     "dev": "node server.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "analyze-deployment": "node scripts/analyze-deployment.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.28.0",
     "@slack/web-api": "^7.13.0",
     "dotenv": "^16.0.3",
     "express": "^4.18.2"
