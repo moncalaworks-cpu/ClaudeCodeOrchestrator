@@ -85,8 +85,9 @@ async function main() {
       diff
     });
 
-    // Save prompt to temp file for Claude Code to read
-    const promptFile = `/tmp/deploy-analysis-${deploymentId}.txt`;
+    // Save prompt to temp file for Claude Code to read (sanitize filename)
+    const sanitizedId = deploymentId.replace(/\//g, '-');
+    const promptFile = `/tmp/deploy-analysis-${sanitizedId}.txt`;
     fs.writeFileSync(promptFile, prompt_text);
 
     console.log('═══════════════════════════════════════════════════════════════');
@@ -179,22 +180,48 @@ function prepareRepository(repo) {
  */
 function getCommitDiff(repoPath, commitSha) {
   try {
-    const diff = execSync(`cd ${repoPath} && git diff ${commitSha}~1 ${commitSha}`, {
-      encoding: 'utf-8',
-      maxBuffer: 1024 * 1024 * 10
-    });
+    let diff = '';
+    let stats = '';
 
-    const stats = execSync(`cd ${repoPath} && git show --stat ${commitSha}`, {
-      encoding: 'utf-8'
-    });
+    try {
+      diff = execSync(`cd ${repoPath} && git diff ${commitSha}~1 ${commitSha}`, {
+        encoding: 'utf-8',
+        maxBuffer: 1024 * 1024 * 10,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch (diffError) {
+      // Commit might not exist (test data), try to get log instead
+      try {
+        diff = execSync(`cd ${repoPath} && git log -1 -p ${commitSha}`, {
+          encoding: 'utf-8',
+          maxBuffer: 1024 * 1024 * 10,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch (logError) {
+        console.warn(`⚠️ Could not get diff or log for commit ${commitSha}`);
+        diff = `(Commit ${commitSha} not found in repository - using test data)`;
+      }
+    }
+
+    try {
+      stats = execSync(`cd ${repoPath} && git show --stat ${commitSha}`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch (statsError) {
+      stats = '(Unable to retrieve statistics)';
+    }
 
     return {
       diff: diff.substring(0, 15000), // Limit size
       stats: stats
     };
   } catch (error) {
-    console.warn(`⚠️ Could not get commit diff: ${error.message}`);
-    return { diff: '', stats: '' };
+    console.warn(`⚠️ Error getting commit info: ${error.message}`);
+    return {
+      diff: '(Unable to retrieve diff - may be test data)',
+      stats: '(Unable to retrieve statistics)'
+    };
   }
 }
 
