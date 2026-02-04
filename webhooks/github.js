@@ -101,6 +101,7 @@ router.post('/github', async (req, res) => {
       if (slackResult.success) {
         console.log(`[GitHub] Slack notification sent, thread: ${slackResult.thread_ts}`);
         deployment_data.slack_thread_id = slackResult.thread_ts;
+        deployment_data.slack_channel = slackResult.channel;
       } else {
         console.error(`[GitHub] Slack notification failed: ${slackResult.error}`);
       }
@@ -109,6 +110,39 @@ router.post('/github', async (req, res) => {
       } else {
         console.warn(`[GitHub] Notion record creation failed or not configured`);
       }
+
+      // Trigger DEV agent analysis (if enabled)
+      if (process.env.ENABLE_DEV_AGENT === 'true' && slackResult.success) {
+        const devAgent = require('../handlers/agents/dev');
+        devAgent.analyzeDeployment(
+          deployment_data,
+          slackResult.channel,
+          slackResult.thread_ts
+        ).then(devResult => {
+          if (devResult.success) {
+            console.log(`[GitHub] DEV agent analysis complete for ${deployment_data.deployment_id}`);
+
+            // Trigger PM agent review (if enabled)
+            if (process.env.ENABLE_PM_AGENT === 'true') {
+              const pmAgent = require('../handlers/agents/pm');
+              pmAgent.reviewDeployment(
+                deployment_data.deployment_id,
+                slackResult.channel,
+                slackResult.thread_ts
+              ).then(pmResult => {
+                console.log(`[GitHub] PM agent review complete for ${deployment_data.deployment_id}`);
+              }).catch(pmErr => {
+                console.error(`[GitHub] PM agent error: ${pmErr.message}`);
+              });
+            }
+          } else {
+            console.warn(`[GitHub] DEV agent analysis failed for ${deployment_data.deployment_id}`);
+          }
+        }).catch(devErr => {
+          console.error(`[GitHub] DEV agent error: ${devErr.message}`);
+        });
+      }
+
       console.log(`[GitHub] Deployment initiated:`, deployment_data);
     }).catch(error => {
       console.error(`[GitHub] Error in async handlers: ${error.message}`);

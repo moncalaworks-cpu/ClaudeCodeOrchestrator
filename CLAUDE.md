@@ -60,6 +60,176 @@ External Event (GitHub push) → Webhook Handler → Return 200 OK immediately �
 - Test files: `**/__tests__/**/*.test.js`
 - Collect from: `handlers/`, `webhooks/` (excludes `__tests__`, `node_modules`)
 
+## Claude API Agent Architecture
+
+### Phase 1: DEV + PM Agents (Approval Workflow Automation)
+
+**Overview**: Two specialized Claude agents automate deployment code review and approval decisions:
+1. **DEV Agent** - Analyzes code changes for risk assessment
+2. **PM Agent** - Reviews risk assessment and makes approval decision
+
+**Workflow**:
+```
+GitHub Push → Slack Notification + Notion Record
+  ↓
+DEV Agent (Claude 3.5 Haiku)
+  - Clone repository
+  - Analyze git diff
+  - Extract: risk_level, concerns, recommendation
+  - Post analysis to Slack thread
+  - Update "DEV Agent Notes" in Notion
+  ↓
+PM Agent (Claude 3.7 Sonnet)
+  - Read DEV agent notes from Notion
+  - Make approval decision: AUTO_APPROVE or HUMAN_REVIEW
+  - Post decision to Slack thread
+  - Auto-approve low-risk deployments (if enabled)
+  - Trigger GitHub Actions deployment OR request human approval
+  - Update "PM Agent Notes" in Notion
+```
+
+### Agent Components
+
+**handlers/agents/base.js**: Shared utilities
+- `callClaude(params)` - Claude API wrapper with error handling
+- `extractDecision(responseText)` - Parse JSON from Claude responses
+- `postAgentUpdate(channel, threadTs, agentName, message)` - Update Slack thread
+- `updateNotionNotes(deploymentId, agentName, notes)` - Persist analysis to Notion
+- `retryWithBackoff(fn, maxAttempts, initialDelayMs)` - Retry logic with exponential backoff
+
+**handlers/agents/dev.js**: Code analysis agent
+- `analyzeDeployment(deploymentData, channel, threadTs)` - Main entry point
+- `prepareRepository(repository)` - Clone/update git repository
+- `analyzeCommitDiff(repoPath, commitSha)` - Extract git diff and stats
+- `buildAnalysisPrompt(deploymentData, diffAnalysis)` - Build Claude prompt
+
+**handlers/agents/pm.js**: Approval decision agent
+- `reviewDeployment(deploymentId, channel, threadTs)` - Main entry point
+- `shouldAutoApprove(context, devDecision, pmDecision)` - Auto-approval criteria
+- `buildDecisionPrompt(deploymentData, devNotes)` - Build Claude prompt
+- `extractDevDecision(devNotes)` - Parse DEV agent notes
+- `triggerGitHubDeployment(deploymentId, channel, threadTs, branch)` - Deploy on auto-approve
+
+### DEV Agent Details
+
+**Model**: Claude 3.5 Haiku (fast, low-cost code analysis)
+**Cost**: ~$0.0015 per analysis (~$45/month at 50 deployments/day)
+
+**Decision Format**:
+```json
+{
+  "risk_level": "LOW|MEDIUM|HIGH",
+  "concerns": ["breaking change", "missing tests"],
+  "recommendation": "APPROVE|REVIEW|BLOCK",
+  "reasoning": "Explain your assessment"
+}
+```
+
+**Risk Assessment Criteria**:
+- **LOW**: Minor changes, no breaking changes, well-tested
+- **MEDIUM**: Moderate changes, potential concerns, requires review
+- **HIGH**: Breaking changes, security risks, database migrations
+
+**Data Collection**:
+1. Clone repository using GitHub PAT
+2. Run `git diff` to extract code changes (max 10k chars)
+3. Parse `git show --stat` for file counts and line changes
+4. Include commit message, author, branch name
+5. Send to Claude with full context
+
+### PM Agent Details
+
+**Model**: Claude 3.7 Sonnet (complex reasoning for approval decisions)
+**Cost**: ~$0.0046 per decision (~$138/month at 50 deployments/day)
+
+**Decision Format**:
+```json
+{
+  "decision": "AUTO_APPROVE|HUMAN_REVIEW",
+  "confidence": 0.92,
+  "reasoning": "Why this decision?"
+}
+```
+
+**Auto-Approval Criteria** (requires all conditions):
+1. DEV risk_level == "LOW"
+2. PM decision == "AUTO_APPROVE"
+3. Confidence >= 0.8 (80%)
+4. NOT main/master branch (never auto-approve PROD)
+5. `ENABLE_AUTO_APPROVAL=true` env flag set
+
+**Context for Decision**:
+- Branch name (feature/*, develop, main)
+- Commit message quality
+- Commit author
+- DEV agent risk assessment
+- DEV agent concerns list
+
+### Integration Points
+
+**webhooks/github.js** (line 96+):
+```javascript
+// After Slack notification + Notion record created
+if (process.env.ENABLE_DEV_AGENT === 'true') {
+  const devAgent = require('../handlers/agents/dev');
+  devAgent.analyzeDeployment(...)
+    .then(devResult => {
+      if (process.env.ENABLE_PM_AGENT === 'true') {
+        const pmAgent = require('../handlers/agents/pm');
+        pmAgent.reviewDeployment(...)
+      }
+    })
+}
+```
+
+**handlers/slack.js** (extended):
+- `postThreadUpdate(channel, threadTs, message)` - Post update to existing thread
+
+**handlers/notion.js** (extended):
+- `updateAgentNotes(deploymentId, agentName, notes)` - Persist agent analysis
+- `getDeploymentRecord(deploymentId)` - Fetch full deployment record
+
+**handlers/reactions.js** (extended):
+- `triggerDeployment(deploymentId, channel, threadTs, approver)` - Trigger deployment
+
+### Testing
+
+**Test Files**:
+- `handlers/agents/__tests__/base.test.js` - Base utilities (15+ tests)
+- `handlers/agents/__tests__/dev.test.js` - DEV agent (8+ tests)
+- `handlers/agents/__tests__/pm.test.js` - PM agent (13+ tests)
+
+**Mocking Strategy**:
+- Mock `@anthropic-ai/sdk` to test Claude API interactions
+- Mock `child_process` for git operations
+- Mock Slack/Notion handlers to isolate agent logic
+
+**Running Agent Tests**:
+```bash
+npm test -- handlers/agents/__tests__/base.test.js
+npm test -- handlers/agents/__tests__/dev.test.js
+npm test -- handlers/agents/__tests__/pm.test.js
+npm test -- handlers/agents/__tests__  # Run all agent tests
+```
+
+### Monitoring & Observability
+
+**Logging Prefixes**:
+- `[Claude API]` - Anthropic API calls
+- `[DEV Agent]` - Code analysis agent
+- `[PM Agent]` - Approval decision agent
+- `[Base Agent]` - Shared utilities
+
+**Notion Audit Trail**:
+- "DEV Agent Notes" field stores complete analysis
+- "PM Agent Notes" field stores approval decision
+- Timestamp fields track when agents processed deployment
+
+**Slack Thread Updates**:
+- Agents post status updates to Slack thread
+- Format: `[AGENT_NAME] message`
+- All decisions visible to team in real-time
+
 ## Environment Variables
 
 Required for operation:
@@ -76,6 +246,18 @@ Required for operation:
 - `SLACK_QA_CHANNEL_ID` - Develop branch notifications
 - `SLACK_PROD_CHANNEL_ID` - Main branch notifications
 - `SLACK_INCIDENTS_CHANNEL_ID` - Error fallback channel
+
+**Notion**
+- `NOTION_API_TOKEN` - Notion integration token
+- `NOTION_DATABASE_ID` - Deployment database ID
+
+**Claude API Agents**
+- `ANTHROPIC_API_KEY` - Claude API key (required for agents)
+- `ENABLE_DEV_AGENT` - Enable code analysis (default: false)
+- `ENABLE_PM_AGENT` - Enable approval decision (default: false)
+- `ENABLE_AUTO_APPROVAL` - Allow auto-approval of low-risk deployments (default: false)
+- `CLAUDE_DEV_MODEL` - DEV agent model (default: claude-3-5-haiku-20241022)
+- `CLAUDE_PM_MODEL` - PM agent model (default: claude-3-7-sonnet-20250219)
 
 **Server**
 - `PORT` - Server port (Heroku assigns dynamically; local default 3001)
@@ -186,6 +368,21 @@ npm test:watch
 3. Verify with: `heroku logs --tail`
 4. Test GitHub webhook: GitHub Settings → Webhooks → Recent Deliveries
 
+**Enabling Claude API Agents**:
+1. Set `ANTHROPIC_API_KEY` in .env or Heroku config
+2. Enable individual agents: `ENABLE_DEV_AGENT=true`, `ENABLE_PM_AGENT=true`
+3. Set `ENABLE_AUTO_APPROVAL=true` to allow auto-approval
+4. Deploy and monitor logs: `heroku logs --tail`
+5. Check Slack threads for agent updates
+6. Review Notion "DEV Agent Notes" and "PM Agent Notes" fields
+
+**Agent Troubleshooting**:
+- Agent doesn't run? Check `ENABLE_DEV_AGENT=true` and `ANTHROPIC_API_KEY` set
+- Claude API error? Check API key is valid and account has credit
+- Repository clone fails? Ensure `GITHUB_PAT` has repo access permissions
+- Auto-approval not working? Verify `ENABLE_AUTO_APPROVAL=true` and deployment is LOW risk
+- Slack updates missing? Check bot is in all required channels
+
 ## Important Notes
 
 ### Slack Bot Requirements
@@ -212,7 +409,7 @@ npm test:watch
 
 ## Phase Status
 
-**Current**: Phase 5 (Infrastructure & Deployment) - Next
+**Current**: Phase 6 (OPS & QAE Agents) - Next
 
 **Completed Phases**:
 - Phase 0: Prerequisites & Accounts
@@ -221,6 +418,11 @@ npm test:watch
 - Phase 3: Slack Integration
 - Phase 3B: Slack Reaction Handler (approval workflow)
 - Phase 4: Notion API Integration (direct API updates via GitHub Actions)
+- Phase 5: Claude API Agents (DEV + PM agents for automated code review & approval)
+
+**In Progress**:
+- Phase 5B: OPS Agent (deployment monitoring, auto-rollback)
+- Phase 5C: QAE Agent (post-deployment testing)
 
 **Upcoming**:
-- Phase 5+: Docker, Heroku deployment automation, Claude API agents
+- Phase 6+: Agent memory/learning, prompt caching, Docker deployment

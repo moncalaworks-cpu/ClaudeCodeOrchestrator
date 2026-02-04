@@ -114,8 +114,35 @@ async function postStatusUpdate(threadId, status) {
   }
 }
 
+/**
+ * Post update to existing thread
+ * @param {string} channel - Channel ID
+ * @param {string} threadTs - Thread timestamp
+ * @param {string} message - Message text (markdown)
+ * @returns {object} {success, ts/error}
+ */
+async function postThreadUpdate(channel, threadTs, message) {
+  try {
+    const result = await slack.chat.postMessage({
+      channel: channel,
+      thread_ts: threadTs,
+      text: message,
+      mrkdwn: true,
+      unfurl_links: false,
+      unfurl_media: false
+    });
+
+    console.log(`[Slack] ✅ Posted thread update to ${channel}`);
+    return { success: true, ts: result.ts };
+  } catch (error) {
+    console.error(`[Slack] ❌ Failed to post thread update: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   sendDeploymentNotification,
   getChannelForBranch,
-  postStatusUpdate
+  postStatusUpdate,
+  postThreadUpdate
 };

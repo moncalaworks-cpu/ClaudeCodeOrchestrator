@@ -322,6 +322,24 @@ async function postDeploymentCommand(channel, threadTs, deploymentId) {
   }
 }
 
+/**
+ * Trigger deployment from PM Agent (for auto-approval)
+ * @param {string} deploymentId - Deployment ID
+ * @param {string} channel - Slack channel ID
+ * @param {string} threadTs - Thread timestamp
+ * @param {string} approver - Approver name (e.g., 'PM Agent')
+ * @returns {Promise} {success, error}
+ */
+async function triggerDeployment(deploymentId, channel, threadTs, approver) {
+  try {
+    await triggerGitHubDeployment(channel, threadTs, deploymentId, approver);
+    return { success: true };
+  } catch (error) {
+    console.error(`[Slack Reactions] Error in triggerDeployment: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   handleReactionAdded,
   approveDeployment,
@@ -330,5 +348,6 @@ module.exports = {
   replyToThread,
   extractDeploymentId,
   triggerGitHubDeployment,
-  postDeploymentCommand
+  postDeploymentCommand,
+  triggerDeployment
 };

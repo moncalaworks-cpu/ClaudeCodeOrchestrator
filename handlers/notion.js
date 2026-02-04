@@ -256,6 +256,84 @@ async function updateDeploymentDeployed(deploymentId) {
 }
 
 /**
+ * Update agent notes in deployment record
+ * @param {string} deploymentId - Deployment ID
+ * @param {string} agentName - Agent name (DEV/PM/OPS/QAE)
+ * @param {string} notes - Agent notes (max 2000 chars)
+ * @returns {Promise<boolean>} Success status
+ */
+async function updateAgentNotes(deploymentId, agentName, notes) {
+  try {
+    if (!notionToken || !databaseId) {
+      console.warn('[Notion] NOTION_API_TOKEN or NOTION_DATABASE_ID not configured');
+      return false;
+    }
+
+    const pageId = await findDeploymentRecord(deploymentId);
+    if (!pageId) {
+      console.warn(`[Notion] Deployment record not found for ${deploymentId}`);
+      return false;
+    }
+
+    const options = getNotionOptions(`/v1/pages/${pageId}`, 'PATCH');
+    const fieldName = `${agentName} Agent Notes`;
+
+    const update = {
+      properties: {
+        [fieldName]: {
+          rich_text: [
+            {
+              type: 'text',
+              text: {
+                content: notes.substring(0, 2000)
+              }
+            }
+          ]
+        }
+      }
+    };
+
+    await makeNotionRequest(options, JSON.stringify(update));
+    console.log(`[Notion] ✅ Updated ${fieldName} for ${deploymentId}`);
+    return true;
+
+  } catch (error) {
+    console.error(`[Notion] ❌ Error updating agent notes: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Get deployment record with all properties
+ * @param {string} deploymentId - Deployment ID
+ * @returns {Promise<object|null>} Notion page object or null
+ */
+async function getDeploymentRecord(deploymentId) {
+  try {
+    if (!notionToken || !databaseId) {
+      console.warn('[Notion] NOTION_API_TOKEN or NOTION_DATABASE_ID not configured');
+      return null;
+    }
+
+    const pageId = await findDeploymentRecord(deploymentId);
+    if (!pageId) {
+      console.warn(`[Notion] Deployment record not found for ${deploymentId}`);
+      return null;
+    }
+
+    const options = getNotionOptions(`/v1/pages/${pageId}`, 'GET');
+    const response = await makeNotionRequest(options);
+
+    console.log(`[Notion] ✅ Retrieved deployment record ${deploymentId}`);
+    return response;
+
+  } catch (error) {
+    console.error(`[Notion] ❌ Error getting deployment record: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Create a new deployment record in Notion
  * @param {object} deploymentData - Deployment data from GitHub webhook
  * @returns {Promise<string|null>} Page ID if created, null otherwise
@@ -363,5 +441,7 @@ module.exports = {
   updateDeploymentApproval,
   updateDeploymentRejection,
   updateDeploymentDeployed,
-  findDeploymentRecord
+  findDeploymentRecord,
+  updateAgentNotes,
+  getDeploymentRecord
 };
